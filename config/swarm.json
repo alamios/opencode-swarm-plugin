@@ -1,0 +1,35 @@
+{
+  "$schema": "./swarm.schema.json",
+  "version": 1,
+  "enabled": true,
+  "namesFile": "./names.json",
+  "promptFile": "./swarm-prompt.md",
+  "toolDescriptionFile": "./tool-description.md",
+  "presence": {
+    "idleGraceMs": 3600000,
+    "reconcileEveryMs": 5000,
+    "publishDebounceMs": 500,
+    "includeSubagents": false
+  },
+  "wait": {
+    "timeoutMs": 1200000,
+    "cyclePolicy": "send_async",
+    "pollEveryMs": 250
+  },
+  "limits": {
+    "messageMaxBytes": 8192,
+    "replyQuoteMaxChars": 1200,
+    "sendsPerMinutePerSession": 30,
+    "repliesPerMinutePerSession": 60
+  },
+  "delivery": {
+    "admissionTimeoutMs": 15000,
+    "retryBaseMs": 1000,
+    "retryMaxMs": 30000,
+    "retryWindowMs": 300000
+  },
+  "reload": {
+    "enabled": true,
+    "debounceMs": 500
+  }
+}

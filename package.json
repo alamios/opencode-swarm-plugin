@@ -1,0 +1,24 @@
+{
+  "name": "swarm",
+  "version": "1.0.0",
+  "description": "OpenCode v2 plugin: peer sessions in the same checkout collaborate through a single swarm tool.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./server.ts",
+    "./server": "./server.ts"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": ">=2.1.3 <3"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.1.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.0"
+  }
+}

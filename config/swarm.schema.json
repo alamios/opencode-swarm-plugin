@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Swarm configuration v1 (proposed contract)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "enabled", "namesFile", "promptFile", "toolDescriptionFile", "presence", "wait", "limits", "delivery", "reload"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "version": {"const": 1},
+    "enabled": {"type": "boolean"},
+    "namesFile": {"type": "string", "minLength": 1},
+    "promptFile": {"type": "string", "minLength": 1},
+    "toolDescriptionFile": {"type": "string", "minLength": 1},
+    "presence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["idleGraceMs", "reconcileEveryMs", "publishDebounceMs", "includeSubagents"],
+      "properties": {
+        "idleGraceMs": {"type": "integer", "minimum": 0, "maximum": 604800000},
+        "reconcileEveryMs": {"type": "integer", "minimum": 1000, "maximum": 60000},
+        "publishDebounceMs": {"type": "integer", "minimum": 0, "maximum": 10000},
+        "includeSubagents": {"type": "boolean"}
+      }
+    },
+    "wait": {
+      "type": "object", "additionalProperties": false,
+      "required": ["timeoutMs", "cyclePolicy", "pollEveryMs"],
+      "properties": {
+        "timeoutMs": {"type": "integer", "minimum": 1000, "maximum": 86400000},
+        "cyclePolicy": {"const": "send_async"},
+        "pollEveryMs": {"type": "integer", "minimum": 100, "maximum": 5000}
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["messageMaxBytes", "replyQuoteMaxChars", "sendsPerMinutePerSession", "repliesPerMinutePerSession"],
+      "properties": {
+        "messageMaxBytes": {"type": "integer", "minimum": 256, "maximum": 65536},
+        "replyQuoteMaxChars": {"type": "integer", "minimum": 100, "maximum": 8000},
+        "sendsPerMinutePerSession": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "repliesPerMinutePerSession": {"type": "integer", "minimum": 1, "maximum": 1000}
+      }
+    },
+    "delivery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["admissionTimeoutMs", "retryBaseMs", "retryMaxMs", "retryWindowMs"],
+      "properties": {
+        "admissionTimeoutMs": {"type": "integer", "minimum": 1000, "maximum": 120000},
+        "retryBaseMs": {"type": "integer", "minimum": 100, "maximum": 60000},
+        "retryMaxMs": {"type": "integer", "minimum": 1000, "maximum": 120000},
+        "retryWindowMs": {"type": "integer", "minimum": 1000, "maximum": 3600000}
+      }
+    },
+    "reload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "debounceMs"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "debounceMs": {"type": "integer", "minimum": 100, "maximum": 10000}
+      }
+    }
+  }
+}
