@@ -492,6 +492,73 @@ sufijo `-0`, y lista acentuada válida), `npm run typecheck` limpio (incluye `tu
 **Despliegue:** los cambios de patrón están en `src/` y `server.ts` → **requieren reinicio
 del servidor** (caché ESM, §8.12); el panel `tui.ts` no (lo carga/recarga la TUI).
 
+## 9.6 Los peers nunca expiraban (26-10)
+
+Síntoma reportado: la lista de peers del panel crecía con cada sesión que se unía pero
+**nunca** eliminaba a las inactivas («tengo peers aunque hace muchas horas que ninguna otra
+sesión está activa»). Dos defectos independientes, ambos confirmados en el estado real:
+
+**Defecto A — `markIdle`/`markSuspended` nunca se ejecutaban.** La BD mostraba las 30 filas
+de presencia con `idle_since = NULL` y `suspended = 0`, mientras los owners de los scopes
+actuales estaban vivos y renovándose (el tick corría) y los endpoints que consulta el
+reconcile (`GET /api/session/active`, `GET /api/session?limit=200`) respondían bien (verificado
+con curl contra el servicio registrado). La causa está en `src/store.ts`: ambas sentencias
+tenían **5 placeholders y solo 4 parámetros** — el `ON CONFLICT … DO UPDATE SET idle_since =
+COALESCE(idle_since, ?)` añadía un `?` más que el `VALUES (?, ?, ?, ?, const)`. `node:sqlite`
+lanza `SQLite query expected 5 values, received 4` en cada llamada; dentro del reconcile el
+`catch` lo degradaba a un warn invisible («reconcile query failed, keeping state») y **todo el
+cuerpo del tick quedaba cortado** (ni `markIdle`, ni tumbas de archivados, ni reap de
+órfanos); desde los handlers de eventos (`session.execution.succeeded/failed/interrupted`)
+salía como *unhandled rejection* — el log del servidor acumula **207** de estas rejection
+(`SQLite query expected 5 values, received 4`) entre 14:46 y 15:59, y se interpreta que era
+un bug del core v2.1.3; no lo era. Ningún test cubría estos métodos con SQLite real, por lo
+que 33/33 no lo detectó.
+
+**Defecto B — el panel mostraba la identidad más vieja, no la actual.** `identityOf` en
+`tui.ts` hacía `SELECT … FROM identities WHERE session_id = ?` sin filtro de scope ni orden:
+devolvía la primera fila, i.e. la identidad del scope más antiguo. El formato de la clave de
+scope ha evolucionado (familias huérfanas `7a49c4e1…`/`ad080e48…` = hash del `id` del
+registro, vs. la actual = ruta canónica del registro), así que la sesión del usuario llevaba
+filas `abeja` (scope antiguo, owner muerto) + `lagarto` + `liron` (scope actual) y el panel
+mostraba `abeja` con sus peers `aguila, alce` — filas de un scope **sin coordinador vivo**,
+que ningún reconcile marcaría jamás idle (sus `idle_since` siguen `NULL` y seguirán siéndolo;
+son fósiles inertes en BD).
+
+**Correcciones:**
+
+- `markIdle`/`markSuspended` (`src/store.ts`): `COALESCE(idle_since, last_active_at)` — 4
+  placeholders, 4 parámetros, y semántica mejor: el idle se ancla al **último momento de
+  actividad real**, no al instante de detección. Consecuencias verificadas en la BD real tras
+  el hot-reload del plugin (16:43:55): los 4 peers muertos del scope actual quedaron con
+  `idle_since` = su `last_active_at` (00:37, 12:02, 13:25, 14:13), todos fuera de la gracia
+  de 1 h → salen del conjunto disponible **inmediatamente**; una sesión en pausa sigue
+  visible `idleGraceMs` (1 h) después de su último toque.
+- Consultas del panel extraídas a `src/panel.ts` (libre de imports del host, testeable con
+  SQLite real). `identityOf` ahora elige la identidad cuyo scope tiene la presencia tocada
+  más recientemente (`LEFT JOIN presence … ORDER BY (p.last_active_at IS NULL) ASC,
+  p.last_active_at DESC, i.name`), así las filas de scopes huérfanos nunca se muestran; de
+  paso corrige un fallo latente: la versión anterior devolvía `undefined` si la **primera**
+  fila estaba tombstoned, aunque existiera otra no-tumbada.
+
+Evidencia: check end-to-end con `src/panel.ts` sobre el `swarm.db` real — `identityOf`
+resuelve `liron` (scope `service.json\0b6d66cd1…`) en vez de `abeja`, y
+`availablePeers` devuelve `[]` (los 4 peers ya caducados). El panel de la TUI (poll 5 s)
+pasa a mostrar `Name: liron / Peers: —` sin reinicios. En el log del servidor, sin
+*unhandled rejection* nueva desde el reload con el fix.
+
+Validación: `npm test` **41/41** (8 nuevos en `test/panel.test.ts`: anclaje de idle al
+último toque, idempotencia, gracia dentro/fuera, `touchActive` re-activa,
+`markSuspended`+`clearSuspended`, selección de identidad por actividad reciente, y
+`availablePeers` con gracia/suspensión/tumba/autosexclusión/expectante), `npm run typecheck`
+limpio. **Despliegue:** sin reinicio. El watch del host recargó el plugin al guardar
+(`loading plugin` 16:43:55 en el log, mismo proceso 1621551 desde 14:25:44) y el nuevo
+coordinador tomó el lease del scope (`owners.instance_id` pasó de `i_1a178a4713…` a
+`i_1a178e06f8f…` en <15 s, expiry del lease viejo) **ejecutando ya el SQL corregido** — en
+este escenario la recarga del host re-importó los módulos de `src/` sin el problema de
+caché ESM que documenta §8.12 (allí la experimentación en caliente fallaba con
+`SyntaxError`; el mecanismo de recarga del host sí re-resuelve los módulos). Si en alguna
+versión la recarga no recogiera `src/`, el respaldo sigue siendo reiniciar el servidor.
+
 ## 10. Resumen de estados
 
 - **Aprobados en vivo:** G01, G02, G03, G05, G07 (parcial), P01, P02, P12, M01, M02, M03, M05,

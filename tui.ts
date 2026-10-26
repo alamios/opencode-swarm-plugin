@@ -24,6 +24,7 @@ import type { RenderContext, RGBA } from "@opentui/core"
 import { Plugin } from "@opencode/plugin/tui"
 import { makeSql } from "./src/db"
 import type { Row, Sql } from "./src/db"
+import { availablePeers, identityOf } from "./src/panel"
 
 const POLL_MS = 5_000
 const NONE = "—"
@@ -145,36 +146,6 @@ async function resolvePaths(
     // unreachable server or unexpected response shape: fall back to defaults
   }
   return { stateDirectory: DEFAULT_STATE_DIRECTORY }
-}
-
-function identityOf(db: Sql, sessionID: string): { name: string; scopeKey: string } | undefined {
-  const row = db.get("SELECT name, scope_key, tombstone FROM identities WHERE session_id = ?", [sessionID])
-  if (!row || row.tombstone) return undefined
-  return { name: String(row.name), scopeKey: String(row.scope_key) }
-}
-
-function availablePeers(db: Sql, scopeKey: string, selfSession: string, now: number, idleGraceMs: number): string[] {
-  const rows = db.all(
-    `SELECT i.name AS name
-       FROM identities i
-       LEFT JOIN presence p
-         ON p.scope_key = i.scope_key AND p.session_id = i.session_id
-      WHERE i.scope_key = ?
-        AND i.tombstone = 0
-        AND i.session_id != ?
-        AND (p.suspended IS NULL OR p.suspended = 0)
-        AND (p.idle_since IS NULL
-             OR p.idle_since + ? > ?
-             OR EXISTS (
-               SELECT 1 FROM waits w
-                WHERE w.scope_key = i.scope_key
-                  AND w.from_session = i.session_id
-                  AND w.state IN ('reserved', 'waiting')
-             ))
-      ORDER BY i.name`,
-    [scopeKey, selfSession, idleGraceMs, now],
-  )
-  return rows.map((row) => String(row.name))
 }
 
 export default Plugin.define({

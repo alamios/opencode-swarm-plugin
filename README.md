@@ -98,7 +98,10 @@ La entrada `tui.ts` registra una sección **Swarm** en el panel derecho de la TU
 `sidebar.content`, junto a Context/MCP/Todo). Muestra dos líneas con etiqueta bajo el
 encabezado:
 
-- `Name: <nombre>`: la identidad de la sesión visible (o `—` si no tiene nombre asignado), y
+- `Name: <nombre>`: la identidad **actual** de la sesión (o `—` si no tiene nombre asignado).
+  Una sesión puede acumular filas de identidad en varios scopes a lo largo de versiones (el
+  formato de la clave de scope ha evolucionado); el panel muestra la del scope cuya presencia
+  se tocó más recientemente, de modo que las filas viejas de scopes huérfanos nunca se ven.
 - `Peers: <nombres>`: los peers actualmente disponibles en el mismo scope (o `—` si no hay).
 
 Los datos se leen del mismo estado SQLite del plugin (lectura exclusiva; la TUI no escribe)
@@ -156,6 +159,10 @@ Comportamientos clave:
   `original` acotada. Los campos fijos nunca se derivan del contenido del peer.
 - **Presencia:** reconciliación cada 5 s contra `GET /api/session/active`; gracia de 1 h
   para sesiones idle; no hay `session.status` en el core v2.1.3 (limitación documentada).
+  El estado idle se ancla al **último momento de actividad real** (no al instante en que se
+  detecta): una sesión cuya actividad terminó hace más de `idleGraceMs` desaparece del
+  conjunto disponible en el siguiente tick, y una sesión solo en pausa sigue visible 1 h
+  después de su último toque.
 
 ### Entrega de la entrada (`swarm`)
 

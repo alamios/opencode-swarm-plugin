@@ -192,11 +192,15 @@ export class Store {
   }
 
   markIdle(scopeKey: string, sessionID: string, now = Date.now()): void {
+    // idle_since anchors to the last recorded activity, not to the moment the
+    // idle state was noticed: peers whose activity ended more than the grace
+    // period ago drop out of the available set immediately, while parked
+    // sessions stay discoverable for the full grace after their last touch.
     this.db.run(
       `INSERT INTO presence (scope_key, session_id, last_active_at, idle_since, suspended)
        VALUES (?, ?, ?, ?, 0)
        ON CONFLICT(scope_key, session_id) DO UPDATE SET
-         idle_since = COALESCE(idle_since, ?)`,
+         idle_since = COALESCE(idle_since, last_active_at)`,
       [scopeKey, sessionID, now, now],
     )
   }
@@ -207,7 +211,7 @@ export class Store {
        VALUES (?, ?, ?, ?, 1)
        ON CONFLICT(scope_key, session_id) DO UPDATE SET
          suspended = 1,
-         idle_since = COALESCE(idle_since, ?)`,
+         idle_since = COALESCE(idle_since, last_active_at)`,
       [scopeKey, sessionID, now, now],
     )
   }
