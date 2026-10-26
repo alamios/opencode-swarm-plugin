@@ -424,6 +424,49 @@ un suspendido y un tombstone). En la TUI real el panel se ve al abrir/estar abie
 lateral; `tui.ts` se recarga en vivo al guardarse (watch del host) y siempre en un arranque
 nuevo.
 
+**Causa del panel invisible y resolución de rutas (26-10)** — la TUI admite el plugin por el
+inventario del servidor (`features.tui === true`) y lo instancia con `context.options = {}`
+(verificado en runtime): las `options` de la entrada de config **no llegan a la TUI** (renderer,
+root y ctx sí existen). La primera versión hacía return silencioso al faltar `stateDirectory`
+→ nada se veía, aunque el plugin cargaba (`plugins=14` = 13 builtin + swarm). Ahora `tui.ts`
+resuelve sus rutas: `context.options` si son válidas; si no, los documentos de config del
+servidor (`context.client.config.get({location})` — el cliente promise-SDK devuelve
+`Array<ConfigEntry>` directamente, sin `.data`; `ConfigEntry` es unión, hay que saltar
+`type !== "document"`) buscando la entrada cuyo `package` apunte a este directorio; si no,
+el mismo default que `server.ts` (`~/.local/state/opencode-swarm`). Evidencia: PTY a 200
+columnas con `opencode -s <sesión>` y emulación de la pantalla VT capturada — el sidebar
+renderiza `Swarm / abeja / aguila, alce` (identidad y peers de esa sesión) — y el usuario
+confirmó el panel en su propia TUI (hot-reload al guardar, sin reinicio). Nota: el sidebar es
+`session.sidebar = "auto"`; en terminal estrecha queda oculto (a 80 columnas no aparece; las
+pruebas requieren ~200).
+
+**Etiquetas de las líneas y colores del tema (26-10)** — el encabezado «Swarm» va en
+negrita con `fg` = color `base` del tema. Cada línea es un `BoxRenderable` fila (gap 1)
+con dos nodos: etiqueta (ancho fijo 7, `fg` = color `muted` del tema + chunk `bold(label)`
+sin `fg`, que hereda el color del nodo) y valor (texto plano sin `fg`, color por defecto,
+actualizado in situ).
+
+Causa raíz del «sin colores»: `context.theme` (`ResolvedTheme`) entrega los colores como
+**instancias `RGBA`** del `@opentui/core` del host (objeto con `buffer: Uint16Array(4)`),
+**no** como strings — verificado en runtime volcando el tema: `text.base` =
+`{buffer:[238,238,238,255]}`, `text.muted` = `{buffer:[128,128,128,255]}` (tema dark del
+PTY; el modo light/dark se auto-detecta por consulta OSC al terminal). La primera versión
+filtraba solo strings → `undefined` → ningún `fg` se asignó nunca. La solución replica el
+patrón de los builtins (`e(h,"fg",n.text.muted,…)`, nodo `<b>` para negrita): asignar el
+RGBA del tema a la propiedad `fg` del renderable — el setter clona `.buffer` de forma
+estructural, sin `instanceof` cross-copia. Los chunks de `StyledText` no llevan color
+ninguno: un chunk sin `fg` hereda el `fg` del nodo (verificado en PTY: chunk solo-`bold`
+sale `SGR 1` con el color del nodo). Evidencia: decodificación SGR de la captura PTY
+(`/tmp/opencode/sgr-decode.py`) — `Context`/`Swarm`/`Name:`/`Peers:` con `SGR 1` (negrita)
+— y confirmación del usuario en su TUI (tema light, hot-reload al guardar): encabezado en
+negro oscuro (`base`), etiquetas atenuadas y valores en color por defecto.
+
+```
+Swarm
+Name:   abeja
+Peers:  aguila, alce
+```
+
 **Nombres con acentos** — patrón anterior `^[a-z][a-z0-9]*…$` → ahora
 `^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$` (y `{1,31}` en `loadNames`), en las tres
 ubicaciones: `NAME_PATTERN`/`loadNames` en `src/config.ts`, `NAME_RE` en `src/coordinator.ts`

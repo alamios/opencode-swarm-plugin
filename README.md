@@ -95,15 +95,24 @@ nueva re-descubre sesiones y re-sincroniza.
 ## TUI: panel de la barra lateral
 
 La entrada `tui.ts` registra una sección **Swarm** en el panel derecho de la TUI (slot
-`sidebar.content`, junto a Context/MCP/Todo). Muestra dos líneas bajo el encabezado:
+`sidebar.content`, junto a Context/MCP/Todo). Muestra dos líneas con etiqueta bajo el
+encabezado:
 
-- la identidad de la sesión visible (o `—` si no tiene nombre asignado), y
-- los peers actualmente disponibles en el mismo scope (o `—` si no hay).
+- `Name: <nombre>`: la identidad de la sesión visible (o `—` si no tiene nombre asignado), y
+- `Peers: <nombres>`: los peers actualmente disponibles en el mismo scope (o `—` si no hay).
 
 Los datos se leen del mismo estado SQLite del plugin (lectura exclusiva; la TUI no escribe)
-y se refrescan cada 5 s. La TUI recarga `tui.ts` en vivo al guardarlo y lo carga siempre en
-un arranque nuevo; no hay que reiniciar nada para ver el panel. Evidencia del mecanismo en
-`docs/VALIDATION.md` §9.5.
+y se refrescan cada 5 s.
+
+La instancia del plugin en la TUI se admite por el inventario del servidor y **no hereda
+las `options` de la entrada de config**, así que `tui.ts` resuelve sus rutas por sí mismo:
+`context.options` si existen, luego la entrada del plugin que apunta a este directorio en
+los documentos de config del servidor (`client.config.get`), y por último el mismo default
+que el servidor (`~/.local/state/opencode-swarm`).
+
+La TUI recarga `tui.ts` en vivo al guardarlo y lo carga siempre en un arranque nuevo; no
+hay que reiniciar nada para ver el panel. Ojo: el sidebar es `"auto"`, con terminal
+estrecha queda oculto. Evidencia del mecanismo en `docs/VALIDATION.md` §9.5.
 
 ## Semántica de la herramienta
 

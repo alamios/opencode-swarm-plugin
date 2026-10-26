@@ -7,31 +7,55 @@
 // accepted by the host's reconciler. The host RenderContext is reached via
 // context.renderer.root.ctx.
 //
+// The TUI loads this plugin from the server inventory and does not carry the
+// config entry options, so the panel resolves its own state/config paths:
+// context.options first, then the plugin entry pointing at this directory in
+// the server config documents (client.config.get), then the server default.
+//
 // The TUI has no other swarm data source, so the plugin state database is
 // polled read-only and the text nodes are updated in place when values change.
 
 import { existsSync, readFileSync } from "node:fs"
-import { isAbsolute, join } from "node:path"
+import { homedir } from "node:os"
+import { dirname, isAbsolute, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { BoxRenderable, StyledText, TextRenderable, bold } from "@opentui/core"
-import type { RenderContext } from "@opentui/core"
+import type { RenderContext, RGBA } from "@opentui/core"
 import { Plugin } from "@opencode/plugin/tui"
 import { makeSql } from "./src/db"
 import type { Row, Sql } from "./src/db"
 
 const POLL_MS = 5_000
 const NONE = "—"
+// Same default as server.ts: join(homedir(), ".local", "state", "opencode-swarm")
+const DEFAULT_STATE_DIRECTORY = join(homedir(), ".local", "state", "opencode-swarm")
+// Fixed label width so "Name:" and "Peers:" values line up in the row.
+const LABEL_WIDTH = 7
 
+// Styling mirrors the host builtins: the "Swarm" header is bold with the
+// theme's base color, and each line is a row of two text nodes — a bold label
+// in the muted color and a value in the default color — with colors coming
+// from the renderable `fg` property fed with the theme's own RGBA instances
+// (ResolvedTheme colors are RGBA objects, not strings). No per-chunk colors
+// are used: a chunk without `fg` inherits the node color.
 interface Panel {
   readonly sessionID: string
-  readonly identity: TextRenderable
-  readonly peers: TextRenderable
+  readonly identityValue: TextRenderable
+  readonly peersValue: TextRenderable
+  readonly identityRow: BoxRenderable
+  readonly peersRow: BoxRenderable
   box: BoxRenderable | undefined
   identityText: string
   peersText: string
 }
 
-function themeColor(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined
+// ResolvedTheme colors are RGBA instances (host's @opentui/core) carrying a
+// Uint16Array `buffer`; some builds may expose plain strings. The `fg` setter
+// accepts both (it clones `.buffer` structurally).
+function themeColor(value: unknown): RGBA | string | undefined {
+  if (typeof value === "string" && value.length > 0) return value
+  if (value && typeof value === "object" && "buffer" in value) return value as RGBA
+  return undefined
 }
 
 async function openReadOnly(path: string): Promise<Sql | undefined> {
@@ -88,6 +112,41 @@ function loadIdleGraceMs(configPath: string | undefined): number {
   }
 }
 
+function pickString(value: unknown): string | undefined {
+  return typeof value === "string" && isAbsolute(value) ? value : undefined
+}
+
+async function resolvePaths(
+  context: Plugin.Context,
+): Promise<{ configPath?: string; stateDirectory: string }> {
+  const options = context.options as Record<string, unknown>
+  const configPath = pickString(options.configPath)
+  const stateDirectory = pickString(options.stateDirectory)
+  if (configPath || stateDirectory) return { configPath, stateDirectory: stateDirectory ?? DEFAULT_STATE_DIRECTORY }
+  // The TUI plugin instance carries no options: the plugin is admitted through
+  // the server inventory. Recover the options from the config documents the
+  // server reports, matching the entry that points at this plugin directory.
+  try {
+    const documents = await context.client.config.get(context.location ? { location: context.location } : undefined)
+    const here = dirname(fileURLToPath(import.meta.url))
+    for (const document of documents) {
+      if (document.type !== "document") continue
+      for (const entry of document.info?.plugins ?? []) {
+        if (typeof entry === "string") continue
+        if (entry.package !== here && resolve(entry.package) !== here) continue
+        const opts = (entry.options ?? {}) as Record<string, unknown>
+        return {
+          configPath: pickString(opts.configPath),
+          stateDirectory: pickString(opts.stateDirectory) ?? DEFAULT_STATE_DIRECTORY,
+        }
+      }
+    }
+  } catch {
+    // unreachable server or unexpected response shape: fall back to defaults
+  }
+  return { stateDirectory: DEFAULT_STATE_DIRECTORY }
+}
+
 function identityOf(db: Sql, sessionID: string): { name: string; scopeKey: string } | undefined {
   const row = db.get("SELECT name, scope_key, tombstone FROM identities WHERE session_id = ?", [sessionID])
   if (!row || row.tombstone) return undefined
@@ -120,16 +179,14 @@ function availablePeers(db: Sql, scopeKey: string, selfSession: string, now: num
 
 export default Plugin.define({
   id: "swarm",
-  setup(context: Plugin.Context) {
-    const options = context.options as Record<string, unknown>
-    const stateDirectory = options.stateDirectory
-    if (typeof stateDirectory !== "string" || !isAbsolute(stateDirectory)) return
-    const dbPath = join(stateDirectory, "swarm.db")
-    const idleGraceMs = loadIdleGraceMs(options.configPath as string | undefined)
-
+  async setup(context: Plugin.Context) {
     const renderer = context.renderer as unknown as { root?: { ctx?: RenderContext } }
     const renderContext = renderer.root?.ctx
     if (!renderContext) return
+
+    const { configPath, stateDirectory } = await resolvePaths(context)
+    const dbPath = join(stateDirectory, "swarm.db")
+    const idleGraceMs = loadIdleGraceMs(configPath)
 
     const theme = context.theme as unknown as { text?: { base?: unknown; muted?: unknown } }
     const base = themeColor(theme.text?.base)
@@ -140,18 +197,18 @@ export default Plugin.define({
 
     const refresh = async () => {
       for (const panel of [...panels.values()]) {
-        if (panel.identity.isDestroyed) {
+        if (panel.identityValue.isDestroyed) {
           panels.delete(panel.sessionID)
           continue
         }
         const current = await snapshot(dbPath, panel.sessionID, idleGraceMs)
         if (current.identity !== panel.identityText) {
           panel.identityText = current.identity
-          panel.identity.content = current.identity
+          panel.identityValue.content = current.identity
         }
         if (current.peers !== panel.peersText) {
           panel.peersText = current.peers
-          panel.peers.content = current.peers
+          panel.peersValue.content = current.peers
         }
       }
     }
@@ -180,14 +237,42 @@ export default Plugin.define({
       void refresh()
     }, POLL_MS)
 
+    const makeRow = (sessionID: string, key: string, label: string) => {
+      const row = new BoxRenderable(renderContext, {
+        id: `swarm-${key}-${sessionID}`,
+        flexDirection: "row",
+        gap: 1,
+      })
+      const labelNode = new TextRenderable(renderContext, {
+        id: `swarm-${key}-label-${sessionID}`,
+        content: new StyledText([bold(label)]),
+        width: LABEL_WIDTH,
+      })
+      if (muted) labelNode.fg = muted
+      const valueNode = new TextRenderable(renderContext, {
+        id: `swarm-${key}-value-${sessionID}`,
+        content: NONE,
+      })
+      row.add(labelNode)
+      row.add(valueNode)
+      return { row, valueNode }
+    }
+
     const register = (sessionID: string): Panel => {
       const existing = panels.get(sessionID)
-      if (existing && !existing.identity.isDestroyed) return existing
-      const identity = new TextRenderable(renderContext, { id: `swarm-identity-${sessionID}`, content: NONE })
-      const peers = new TextRenderable(renderContext, { id: `swarm-peers-${sessionID}`, content: NONE })
-      if (base) identity.fg = base
-      if (muted) peers.fg = muted
-      const panel: Panel = { sessionID, identity, peers, box: undefined, identityText: NONE, peersText: NONE }
+      if (existing && !existing.identityValue.isDestroyed) return existing
+      const identity = makeRow(sessionID, "identity", "Name:")
+      const peers = makeRow(sessionID, "peers", "Peers:")
+      const panel: Panel = {
+        sessionID,
+        identityValue: identity.valueNode,
+        peersValue: peers.valueNode,
+        identityRow: identity.row,
+        peersRow: peers.row,
+        box: undefined,
+        identityText: NONE,
+        peersText: NONE,
+      }
       panels.set(sessionID, panel)
       void refresh()
       return panel
@@ -207,8 +292,8 @@ export default Plugin.define({
         })
         if (base) header.fg = base
         box.add(header)
-        box.add(panel.identity)
-        box.add(panel.peers)
+        box.add(panel.identityRow)
+        box.add(panel.peersRow)
         panel.box = box
         return box as unknown as never
       },
@@ -220,8 +305,8 @@ export default Plugin.define({
       for (const panel of panels.values()) {
         try {
           if (panel.box && !panel.box.isDestroyed) panel.box.destroy()
-          if (!panel.identity.isDestroyed) panel.identity.destroy()
-          if (!panel.peers.isDestroyed) panel.peers.destroy()
+          if (!panel.identityRow.isDestroyed) panel.identityRow.destroy()
+          if (!panel.peersRow.isDestroyed) panel.peersRow.destroy()
         } catch {
           // already destroyed by the host
         }
