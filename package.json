@@ -1,7 +1,7 @@
 {
   "name": "swarm",
   "version": "1.0.0",
-  "description": "OpenCode v2 plugin: peer sessions in the same checkout collaborate through a single swarm tool.",
+  "description": "OpenCode v2 plugin: peer sessions in the same checkout collaborate through a single swarm tool, with a TUI sidebar panel for identity and peers.",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -18,7 +18,11 @@
   },
   "devDependencies": {
     "@opencode/plugin": "2.1.3",
+    "solid-js": "1.9.15",
     "tsx": "^4.23.15",
     "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@opentui/core": "0.6.6"
   }
 }

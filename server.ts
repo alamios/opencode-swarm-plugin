@@ -23,10 +23,10 @@ const INPUT_SCHEMA: Record<string, unknown> = {
   properties: {
     name: {
       type: "string",
-      pattern: "^[a-z][a-z0-9]*(?:-[1-9][0-9]*)?$",
+      pattern: "^[a-z\\u00E0-\\u00F6\\u00F8-\\u00FF][a-z\\u00E0-\\u00F6\\u00F8-\\u00FF0-9]*(?:-[1-9][0-9]*)?$",
       maxLength: 64,
       description:
-        "Target teammate name (lowercase letters and digits, optional -N suffix); use the names listed in the <peers> element of the <swarm> context.",
+        "Target teammate name (lowercase Latin letters, digits and accents such as á é í ó ú ü ñ, optional -N suffix); use the names listed in the <peers> element of the <swarm> context.",
     },
     message: {
       type: "string",

@@ -82,12 +82,17 @@ test("parameter relations are enforced", () => {
   assert.throws(() => loadConfig(path3), /admissionTimeoutMs must be <= delivery\.retryWindowMs/)
 })
 
-test("name rules: lowercase ascii, 2-32, unique", () => {
+test("name rules: lowercase latin with accents, 2-32, unique", () => {
   const bad = [
     JSON.stringify(["Abela"]),
+    JSON.stringify(["Águila"]),
     JSON.stringify(["a"]),
     JSON.stringify(["x".repeat(33)]),
     JSON.stringify(["con espacio"]),
+    JSON.stringify(["9vidas"]),
+    JSON.stringify(["muro-0"]),
+    JSON.stringify(["a÷b"]),
+    JSON.stringify(["猫"]),
     JSON.stringify(["abeja", "abeja"]),
     JSON.stringify([]),
   ]
@@ -100,6 +105,15 @@ test("name rules: lowercase ascii, 2-32, unique", () => {
     writeFileSync(join(base, "tool-description.md"), "d")
     assert.throws(() => loadConfig(join(base, "swarm.json")), ConfigError)
   })
+
+  const base = join(dir, "names-accents")
+  mkdirSync(base, { recursive: true })
+  writeFileSync(join(base, "names.json"), JSON.stringify(["águila", "musaraña", "tucán", "cúculo"]))
+  writeFileSync(join(base, "swarm.json"), JSON.stringify(loadFixtureJson()))
+  writeFileSync(join(base, "swarm-prompt.md"), "p")
+  writeFileSync(join(base, "tool-description.md"), "d")
+  const loaded = loadConfig(join(base, "swarm.json"))
+  assert.deepEqual(loaded.files.names, ["águila", "musaraña", "tucán", "cúculo"])
 })
 
 function loadFixtureJson() {

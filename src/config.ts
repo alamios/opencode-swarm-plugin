@@ -9,7 +9,7 @@ import { dirname, isAbsolute, resolve } from "node:path"
 import type { LoadedConfig, SwarmConfig, SwarmFiles } from "./types"
 import { sha256 } from "./ids"
 
-export const NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[1-9][0-9]*)?$/
+export const NAME_PATTERN = /^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$/
 
 export class ConfigError extends Error {
   constructor(
@@ -136,8 +136,8 @@ export function loadNames(path: string): readonly string[] {
   const seen = new Set<string>()
   for (const value of raw) {
     if (typeof value !== "string") throw new ConfigError("names must be strings", undefined, path)
-    if (!/^[a-z][a-z0-9]{1,31}$/.test(value))
-      throw new ConfigError(`invalid name "${value}": 2-32 lowercase ASCII letters/digits, starting with a letter`, undefined, path)
+    if (!/^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]{1,31}$/.test(value))
+      throw new ConfigError(`invalid name "${value}": 2-32 lowercase Latin letters/digits (accents and ñ allowed), starting with a letter`, undefined, path)
     if (seen.has(value)) throw new ConfigError(`duplicate name "${value}"`, undefined, path)
     seen.add(value)
   }

@@ -74,14 +74,16 @@ Array JSON de nombres; el **orden del archivo no importa**: la asignación es al
 (Fisher–Yates sobre la lista, dentro de una transacción atómica, con la restricción de
 unicidad `(scope, nombre)`). Reglas:
 
-- 2–32 caracteres, solo letras/dígitos ASCII minúsculos, empezando por letra.
+- 2–32 caracteres, solo letras latinas minúsculas (con acentos: á é í ó ú ü ñ) y dígitos,
+  empezando por letra (patrón `^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]{1,31}$`).
 - Sin duplicados.
 - Cada nombre se asigna **como mucho una vez por scope** y queda reservado para siempre
   (tumba), incluso si la sesión se archiva: no se recicla.
 - Al agotar la lista, se usan sufijos numéricos (`abeja-2`, `abeja-3`, …) en el mismo
   orden aleatorio.
 
-Contenido actual: **154 nombres**.
+Contenido actual: **154 nombres**, todos en español con la ortografía normativa
+(acentos y ñ incluidos; p. ej. `águila`, `búho`, `musaraña`, `fragata`).
 
 ## swarm-prompt.md
 

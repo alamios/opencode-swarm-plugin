@@ -36,7 +36,7 @@ Todas las instancias de un servidor deben apuntar a los mismos archivos y almac�
 
 **Cambiar el comportamiento explicado a los agentes:** editar `swarm-prompt.md`. Mantener la variable `{{self_name}}` si se quiere mostrar el nombre en el texto. El plugin también conserva `self_name` como campo estructurado, por lo que quitar la variable no elimina la identidad.
 
-**Añadir animales:** editar el array de `config/names.json` del repositorio. Los nombres deben ser únicos, en minúsculas ASCII, sin espacios, de 2 a 32 letras. Los sufijos numéricos los administra el plugin.
+**Añadir animales:** editar el array de `config/names.json` del repositorio. Los nombres deben ser únicos, en minúsculas latinas (acentos y ñ permitidos), sin espacios, de 2 a 32 caracteres. Los sufijos numéricos los administra el plugin.
 
 **Modificar la descripción de la herramienta:** editar `tool-description.md`. Se aplica a las próximas instantáneas del catálogo; puede cambiar el prefijo de herramientas porque se ha editado deliberadamente una descripción, no por actividad de peers.
 

@@ -106,7 +106,7 @@ export interface CoordinatorOptions {
   readonly log: (level: "info" | "warn" | "error", message: string) => void
 }
 
-const NAME_RE = /^[a-z][a-z0-9]*(?:-[1-9][0-9]*)?$/
+const NAME_RE = /^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$/
 
 export class Coordinator {
   private readonly sessionCache = new Map<string, CachedSession>()
@@ -565,7 +565,7 @@ export class Coordinator {
 
     if (!cfg.config.enabled) return { status: "error", code: "CONFIG_ERROR", detail: "swarm is disabled" }
     if (typeof input.name !== "string" || !NAME_RE.test(input.name) || input.name.length > 64)
-      return { status: "error", code: "INVALID_INPUT", detail: "name must match the peer name pattern (lowercase, optional -N suffix)" }
+      return { status: "error", code: "INVALID_INPUT", detail: "name must match the peer name pattern (lowercase Latin letters, digits and accents, optional -N suffix)" }
     if (typeof input.message !== "string" || input.message.trim().length === 0)
       return { status: "error", code: "INVALID_INPUT", detail: "message must be non-empty text" }
     const messageBytes = Buffer.byteLength(input.message, "utf8")

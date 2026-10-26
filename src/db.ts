@@ -49,7 +49,7 @@ function normalizeRow(row: Record<string, unknown>): Row {
   return out
 }
 
-function makeSql(database: {
+export function makeSql(database: {
   prepare(sql: string): { run(...p: readonly SqlValue[]): { changes: number | bigint } | number; get(...p: readonly SqlValue[]): Row | undefined; all(...p: readonly SqlValue[]): Row[] }
   exec(sql: string): void
   close(): void

@@ -23,7 +23,8 @@ la de auto-descubrimiento del servidor y carga sin opciones; este plugin requier
 
 ```
 <raíz del proyecto>          (p. ej. ~/projects/opencode-swarm)
-  server.ts, src/, test/     implementación (sin paso de build)
+  server.ts, tui.ts, src/, test/  implementación (sin paso de build; `tui.ts` es la
+                                  entrada del panel de la TUI)
   config/                    archivos editables en vivo (swarm.json, names.json,
                              swarm-prompt.md, tool-description.md, swarm.schema.json)
   docs/spec/                 especificación normativa original (SPEC.md, ACCEPTANCE.md,
@@ -52,8 +53,8 @@ la de auto-descubrimiento del servidor y carga sin opciones; este plugin requier
    Opciones opcionales: `stateDirectory` (por defecto `~/.local/state/opencode-swarm`)
    para mover el estado SQLite, y `serviceRegistration` (por defecto
    `~/.local/state/opencode/service.json`) para apuntar a un registro distinto.
-3. `npm install` dentro del proyecto (solo para tests/typecheck) y reiniciar o esperar la
-   recarga del servidor.
+3. `npm install` dentro del proyecto (para tests/typecheck, y para que la TUI resuelva
+   `@opentui/core` al cargar el panel `tui.ts`) y reiniciar o esperar la recarga del servidor.
 
 ### Requisito crítico (v2.1.3): `codemode: false`
 
@@ -69,7 +70,7 @@ Archivos en `config/`:
 | Archivo | Contenido |
 | --- | --- |
 | `swarm.json` | Activación, presencia, esperas, límites, entrega, recarga (ver `swarm.schema.json`) |
-| `names.json` | Lista de nombres de animal (asignación aleatoria; el orden del archivo no importa) |
+| `names.json` | Lista de nombres de animal (asignación aleatoria; el orden del archivo no importa; admite acentos y ñ) |
 | `swarm-prompt.md` | Texto del elemento `<instructions>` del bloque `<swarm>` (inglés): identidad y peers, con la variable `{{self_name}}` |
 | `tool-description.md` | Descripción de `swarm` (inglés): parámetros, resultados y normas de uso |
 
@@ -91,11 +92,25 @@ que **los cambios de código requieren reiniciar el servidor** (detalle en `docs
 devuelve `status: timeout` con detalle `swarm stopped before a reply arrived`; la instancia
 nueva re-descubre sesiones y re-sincroniza.
 
+## TUI: panel de la barra lateral
+
+La entrada `tui.ts` registra una sección **Swarm** en el panel derecho de la TUI (slot
+`sidebar.content`, junto a Context/MCP/Todo). Muestra dos líneas bajo el encabezado:
+
+- la identidad de la sesión visible (o `—` si no tiene nombre asignado), y
+- los peers actualmente disponibles en el mismo scope (o `—` si no hay).
+
+Los datos se leen del mismo estado SQLite del plugin (lectura exclusiva; la TUI no escribe)
+y se refrescan cada 5 s. La TUI recarga `tui.ts` en vivo al guardarlo y lo carga siempre en
+un arranque nuevo; no hay que reiniciar nada para ver el panel. Evidencia del mecanismo en
+`docs/VALIDATION.md` §9.5.
+
 ## Semántica de la herramienta
 
 `swarm({ name, message, reply_to?, wait_for_reply? })`:
 
-- `name`: nombre del peer (minúsculas; patrón `^[a-z][a-z0-9]*(?:-[1-9][0-9]*)?$`).
+- `name`: nombre del peer (letras latinas minúsculas con acentos —á é í ó ú ü ñ— y dígitos;
+  patrón `^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$`).
 - `reply_to`: ID exacto del mensaje recibido al que se responde (se adjunta la cita real del
   original, acotada).
 - `wait_for_reply` (default `false`): espera la primera respuesta correlacionada hasta

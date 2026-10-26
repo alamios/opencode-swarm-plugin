@@ -3,7 +3,7 @@
   "additionalProperties": false,
   "required": ["name", "message"],
   "properties": {
-    "name": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[1-9][0-9]*)?$", "maxLength": 64, "description": "Target teammate name (lowercase letters and digits, optional -N suffix); use the names listed in the <peers> element of the <swarm> context."},
+    "name": {"type": "string", "pattern": "^[a-z\\u00E0-\\u00F6\\u00F8-\\u00FF][a-z\\u00E0-\\u00F6\\u00F8-\\u00FF0-9]*(?:-[1-9][0-9]*)?$", "maxLength": 64, "description": "Target teammate name (lowercase Latin letters, digits and accents such as á é í ó ú ü ñ, optional -N suffix); use the names listed in the <peers> element of the <swarm> context."},
     "message": {"type": "string", "minLength": 1, "description": "Plain-text message body delivered to the target session."},
     "reply_to": {"type": "string", "minLength": 1, "description": "Exact opaque ID of a message you received; quote it verbatim when answering that message."},
     "wait_for_reply": {"type": "boolean", "default": false, "description": "Block until the first correlated reply arrives or the wait times out. Only set it when the next action depends on the answer."}

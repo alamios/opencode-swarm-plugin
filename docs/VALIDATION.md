@@ -381,6 +381,74 @@ limitación de la caché ESM de Bun (§8.12) estos cambios de `src/` y de `serve
 **reinicio del servidor**; como el scope ya es estable (§9.3), los nombres se conservan sin
 re-asignación.
 
+## 9.5 Panel TUI y nombres con acentos (26-10)
+
+Dos cambios pedidos por el usuario: (a) mostrar la identidad y los peers en el panel derecho
+de la TUI (el sidebar, donde están Context/MCP/Todo), y (b) permitir acentos y ñ en los
+nombres (y corregir la lista de animales, que queda en español normativo).
+
+**Panel TUI (`tui.ts`)** — entrada de plugin independiente de `server.ts` (el host resuelve
+los entrypoints por subruta: `Host.resolve` en `packages/plugin/src/host.ts` prueba
+`["tui"]` → `Bun.resolveSync(<dir>/tui)`). Decisión clave: **no usar JSX del host**. El JSX
+del TUI (`@opentui/solid/jsx-runtime`) crea nodos OpenTUI a través de `createElement`, que
+lee el contexto de renderer de su **propia copia** de solid/s-js (`useContext`); un plugin
+externo tiene copias distintas y recibiría «No renderer found» al renderizar. En su lugar
+`tui.ts` crea los nodos **imperativamente**:
+
+- Contexto de render del host: `context.renderer.root.ctx` (`CliRenderer.root:
+  RootRenderable`, `Renderable.get ctx(): RenderContext`; verificado en el fuente de
+  `@opentui/core` 0.6.6, `renderer.d.ts` y `Renderable.d.ts`).
+- `new BoxRenderable(ctx, { id, flexDirection })` + `new TextRenderable(ctx, { id, content })`
+  desde la propia copia de `@opentui/core` del plugin (dependencia nueva, **pin 0.6.6** =
+  versión del catálogo del host).
+- Compatibilidad entre copias: los renderables se reconocen por marca
+  `Symbol.for("@opentui/core/Renderable")` (`isRenderable` → `maybeMakeRenderable` →
+  `Renderable.add`), símbolo bien conocido que coincide entre copias del mismo `Symbol.for`
+  (verificado en `chunk-node-*.js` del paquete 0.6.6). Las comprobaciones `instanceof`
+  restantes del reconciler degradan con elegancia sobre nodos ajenos de la misma versión.
+- Slot: `context.ui.slot({ append: "sidebar.content", render })`; la sección queda apilada
+  con el resto del sidebar, siempre visible cuando el sidebar está abierto. El `render` se
+  ejecuta una vez por instancia (sin tracking), así el contenido dinámico lo hace un
+  `setInterval` de 5 s que muta `text.content` solo cuando cambia (las escrituras sobre
+  nodos destruidos son no-ops por diseño del core).
+- Datos: la TUI no tiene otra fuente; se lee el `swarm.db` del plugin en **solo lectura**
+  (`bun:sqlite` con `readonly: true`, con fallback `node:sqlite` para entornos de test),
+  consultando `identities` por `session_id` y replicando la disponibilidad de
+  `store.availableSessions` (no suspendidos, active o idle dentro del `idleGraceMs` de
+  `swarm.json`, o con waites `reserved`/`waiting` propios).
+
+Evidencia: smoke test fuera de TUI (tsx + `@opentui/core` instalado) con BD real sembrada:
+el box expone 3 hijos (encabezado «Swarm» en negrita, identidad, peers), la identidad sale
+`liron` y los peers **solo** el disponible (`águila`; quedan fuera un idle fuera de gracia,
+un suspendido y un tombstone). En la TUI real el panel se ve al abrir/estar abierta la barra
+lateral; `tui.ts` se recarga en vivo al guardarse (watch del host) y siempre en un arranque
+nuevo.
+
+**Nombres con acentos** — patrón anterior `^[a-z][a-z0-9]*…$` → ahora
+`^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$` (y `{1,31}` en `loadNames`), en las tres
+ubicaciones: `NAME_PATTERN`/`loadNames` en `src/config.ts`, `NAME_RE` en `src/coordinator.ts`
+y `name.pattern` del schema en `server.ts` (espejado en
+`docs/spec/contracts/swarm.input.schema.json` con escapes `\u00E0-\u00F6`/`\u00F8-\u00FF`).
+La clase es **solo minúsculas**: el rango continuo `À-ɏ` (U+00C0-U+024F) incluiría
+mayúsculas acentuadas (Á U+00C1) — detectado por el test (`Águila` debe rechazar) y
+corregido acotando a `a-z` + `à-öø-ÿ` (U+00E0-U+00F6, U+00F8-U+00FF; U+00F7 es «÷», no
+letra). Cubre español, francés, portugués, alemán, etc. Las identidades ya asignadas
+conservan su grafía en BD (p. ej. esta sesión es `liron`, que se sustituyó por `muro` en la
+lista).
+
+**Lista de nombres corregida** — 154 nombres, ortografía normativa: 32 acentos
+(`águila`, `búho`, `delfín`, `gorrión`, `halcón`, `hurón`, `colibrí`, `tejón`, `ratón`,
+`ruiseñor`, `tucán`, `atún`, `salmón`, `tiburón`, `caimán`, `camaleón`, `víbora`, `tritón`,
+`araña`, `pitón`, `manatí`, `pingüino`, `visón`, `cormorán`, `cúculo`, `gavilán`, `martín`,
+`hipopótamo`, `musaraña`, `piraná`, `ciempiés`, `tarántula`), `fregata` → `fragata` (RAE)
+y `liron` (no es un animal estándar en español) → `muro`. Sin duplicados; verificado con el
+patrón nuevo.
+
+Validación: `npm test` **33/33** (reglas de nombre ampliadas: mayúscula acentuada, CJK, ÷,
+sufijo `-0`, y lista acentuada válida), `npm run typecheck` limpio (incluye `tui.ts`).
+**Despliegue:** los cambios de patrón están en `src/` y `server.ts` → **requieren reinicio
+del servidor** (caché ESM, §8.12); el panel `tui.ts` no (lo carga/recarga la TUI).
+
 ## 10. Resumen de estados
 
 - **Aprobados en vivo:** G01, G02, G03, G05, G07 (parcial), P01, P02, P12, M01, M02, M03, M05,
