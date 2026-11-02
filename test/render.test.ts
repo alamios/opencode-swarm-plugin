@@ -91,3 +91,17 @@ test("metadata keeps the full machine envelope", () => {
   const replyMeta = envelopeMetadata({ ...envelope, reply: "msg_orig" })
   assert.equal(replyMeta.reply_to, "msg_orig")
 })
+
+test("cross-scope outbound text carries from_dir; same-scope does not", () => {
+  const cross: Envelope = {
+    ...envelope,
+    scopeKey: "svc\u0000projA\u0000/checkout/a",
+    toScopeKey: "svc\u0000projB\u0000/checkout/b",
+  }
+  const parsed = JSON.parse(renderOutbound(cross, undefined, 1200))
+  assert.equal(parsed.from, "garza")
+  assert.equal(parsed.from_dir, "/checkout/a")
+  assert.equal(parsed.to, "nutria")
+  const parsedLocal = JSON.parse(renderOutbound(envelope, undefined, 1200))
+  assert.equal(parsedLocal.from_dir, undefined)
+})

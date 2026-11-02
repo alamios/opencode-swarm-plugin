@@ -5,6 +5,7 @@
 // is in the text. Metadata keeps the machine envelope for the plugin's own records.
 
 import type { Envelope } from "./types"
+import { scopeCheckoutDir } from "./scope"
 
 /**
  * Truncate to at most maxCodePoints Unicode code points, adding an explicit
@@ -27,9 +28,15 @@ export function truncateQuote(text: string, maxCodePoints: number): { text: stri
 export function renderOutbound(envelope: Envelope, originalQuote: string | undefined, maxQuoteChars: number): string {
   const body: Record<string, unknown> = {
     from: envelope.fromName,
-    to: envelope.toName,
-    id: envelope.id,
   }
+  // Cross-scope messages carry the sender's directory: names are only unique
+  // within a scope, so a remote peer must show where it lives.
+  if (envelope.toScopeKey && envelope.toScopeKey !== envelope.scopeKey) {
+    const fromDir = scopeCheckoutDir(envelope.scopeKey)
+    if (fromDir) body.from_dir = fromDir
+  }
+  body.to = envelope.toName
+  body.id = envelope.id
   if (envelope.reply) {
     body.reply_to = envelope.reply
     if (originalQuote !== undefined) body.original = truncateQuote(originalQuote, maxQuoteChars).text
@@ -62,6 +69,7 @@ export function envelopeMetadata(envelope: Envelope): Record<string, unknown> {
     protocol: envelope.protocol,
     id: envelope.id,
     scopeKey: envelope.scopeKey,
+    toScopeKey: envelope.toScopeKey ?? null,
     fromSessionID: envelope.fromSessionID,
     toSessionID: envelope.toSessionID,
     fromName: envelope.fromName,

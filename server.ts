@@ -44,6 +44,12 @@ const INPUT_SCHEMA: Record<string, unknown> = {
       description:
         "Block until the first correlated reply arrives or the wait times out. Only set it when the next action depends on the answer.",
     },
+    work_dir: {
+      type: "string",
+      minLength: 1,
+      description:
+        "Directory of another swarm to address, when explicitly asked to talk to a peer in another folder. Relative paths resolve against your own working directory; the directory is canonicalized to its checkout root. Without it (or with '.') the send goes to a peer in your own swarm. Ignored when reply_to is set.",
+    },
   },
 }
 
@@ -93,6 +99,15 @@ export default Plugin.define({
     const scopeKey = locationScopeKey(serviceID, ctx.location.project.id, ctx.location.directory)
     const log = (level: "info" | "warn" | "error", message: string) =>
       console.error(`[swarm:${level}] ${message}`)
+
+    // Register this scope for cross-scope addressing (work_dir lookups).
+    store.upsertScope({
+      scopeKey,
+      serviceRef: serviceID,
+      projectID: ctx.location.project.id,
+      checkoutDir: scopeRoot,
+      now: Date.now(),
+    })
 
     const current: { config: LoadedConfig } = { config: loaded }
     const coordinator = new Coordinator({

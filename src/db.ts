@@ -207,12 +207,27 @@ export const MIGRATIONS: readonly string[] = [
     renewed_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL
   )`,
+  // Scope registry for cross-scope addressing: each coordinator upserts its
+  // own row at start. (service_ref, checkout_dir) identifies a scope uniquely
+  // (a directory belongs to exactly one project), so work_dir lookups are
+  // exact component matches, never path prefixes.
+  `CREATE TABLE IF NOT EXISTS scopes (
+    scope_key TEXT PRIMARY KEY,
+    service_ref TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    checkout_dir TEXT NOT NULL,
+    registered_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS scopes_lookup ON scopes (service_ref, checkout_dir)`,
 ]
 
 export function migrate(db: Sql): void {
   db.exec("BEGIN IMMEDIATE")
   try {
     for (const statement of MIGRATIONS) db.exec(statement)
+    // ALTER TABLE ADD COLUMN is not idempotent; guard it with a column check.
+    const messageColumns = db.all("PRAGMA table_info(messages)").map((row) => String(row.name))
+    if (!messageColumns.includes("to_scope_key")) db.exec("ALTER TABLE messages ADD COLUMN to_scope_key TEXT")
     db.exec("COMMIT")
   } catch (error) {
     try {

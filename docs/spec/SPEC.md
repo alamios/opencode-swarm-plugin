@@ -1,6 +1,6 @@
 # Swarm — especificación funcional y técnica
 
-Versión 1.0 · 24 de octubre de 2026
+Versión 1.1 · 2 de noviembre de 2026
 
 Este documento define el plugin a implementar. Las capacidades documentadas se referencian en `SOURCES.md`; el resto son requisitos del producto y decisiones propuestas de ingeniería. La versión instalada de OpenCode debe verificarse antes de escribir la integración. La implementación vigente de este documento vive en la raíz del repositorio (`server.ts`, `src/`); la evidencia de validación está en `docs/VALIDATION.md`.
 
@@ -8,7 +8,7 @@ Este documento define el plugin a implementar. Las capacidades documentadas se r
 
 Varias sesiones independientes de un mismo servidor OpenCode colaboran en un checkout. Cada sesión conoce su nombre de animal y los nombres de sus compañeros. Puede enviar un mensaje, responder a otro y, opcionalmente, esperar una respuesta crítica. El usuario no ejecuta altas ni registros. La única herramienta expuesta al modelo es `swarm`.
 
-Otros proyectos y otros checkouts del servidor quedan separados. No se envían títulos de sesiones, tareas, roles ni resúmenes. La lista de presencia no fluctúa por cada transición entre generar texto y usar herramientas. No se implementan broadcast, reservas de archivos, asignación de tareas, elección de un líder ni coordinación entre servidores.
+Otros proyectos y otros checkouts del servidor quedan separados por defecto; un envío entre ámbitos solo ocurre con indicación explícita del usuario mediante `work_dir`. No se envían títulos de sesiones, tareas, roles ni resúmenes. La lista de presencia no fluctúa por cada transición entre generar texto y usar herramientas. No se implementan broadcast, reservas de archivos, asignación de tareas, elección de un líder ni coordinación entre servidores.
 
 ## 2. Identidad y ámbito
 
@@ -38,7 +38,7 @@ Una consulta fallida deja el estado como desconocido; no elimina en masa compañ
 
 Archivar/eliminar o mover una sesión la quita del ámbito. Una interrupción explícita del usuario marca el destinatario como suspendido para evitar que un envío pendiente lo reactive contra esa intención. La siguiente reanudación explícita de su trabajo puede rehabilitarlo. Distinguir esta acción de una cancelación aislada de herramienta. Documentar qué señales permiten comprobarlo; no simular esta garantía si el runtime no las ofrece.
 
-Los peers anunciados son disponibles, no necesariamente ocupados. Solo se publican nombres, en orden estable. La propia sesión queda excluida. El plugin revalida al enviar porque la instantánea puede haberse quedado obsoleta.
+Los peers anunciados son disponibles, no necesariamente ocupados. Solo se publican nombres, en orden estable. La propia sesión queda excluida. El plugin revalida al enviar porque la instantánea puede haberse quedado obsoleta: identidad viva (no en tombstone), sesión existente no eliminada ni archivada en el ámbito objetivo y sin suspensión. La disponibilidad dentro de la gracia de idle **no** es un gate de envío: la gracia gobierna únicamente la visibilidad (lista `<peers>`, panel, contexto), y un envío a un peer inactivo se entrega igualmente y lo despierta.
 
 ## 4. Instrucciones incrementales
 
@@ -66,10 +66,13 @@ type SendInput = {
   message: string
   reply_to?: string
   wait_for_reply?: boolean // false
+  work_dir?: string
 }
 ```
 
 Validar texto no vacío tras comprobar espacios, bytes UTF-8, nombre y tipo. El SDK puede adaptar el dialecto JSON Schema necesario para el modelo, sin cambiar el contrato. No pedir al modelo IDs de sesión, proyecto, clave de idempotencia, timeout ni modo de entrega.
+
+`work_dir` (ausente: el propio ámbito) es el directorio del swarm destino de un **envío nuevo**. Resolverlo contra el directorio de la sesión emisora, canonizarlo a la raíz del checkout y buscarlo en el registro de ámbitos por (identidad de servicio estable, directorio canonizado); un directorio pertenece a un único proyecto, así la búsqueda es exacta, nunca por prefijo. Sin ámbito registrado o sin coordinador con lease vivo en el ámbito destino, `PEER_UNAVAILABLE` con el directorio en el detalle. `reply_to` tiene prioridad sobre `work_dir`: una respuesta siempre vuelve al ámbito del autor original y `work_dir` se ignora.
 
 Resultados propuestos (objetos JSON serializados en el formato de contenido de herramienta que requiera el SDK):
 
@@ -102,6 +105,7 @@ type Envelope = {
   protocol: "swarm/v1"
   id: string
   scopeKey: string
+  toScopeKey?: string // ámbito destino en un cruce; ausente en un envío local
   fromSessionID: string
   toSessionID: string
   fromName: string
@@ -112,11 +116,13 @@ type Envelope = {
 }
 ```
 
-En una entrega asíncrona, usar mensaje sintético con `delivery:"steer"`, `resume:true`, texto legible y metadatos de sobre. Conservar el texto del agente como contenido, sin transformarlo en instrucciones de sistema. El texto visible es un único objeto JSON con `from`, `to`, `id`, `message` y — en respuestas — `reply_to` más una cita del original limitada por `replyQuoteMaxChars`, marcada como truncada. Los campos fijos nunca se derivan del contenido del peer, así el cuerpo no puede suplantarlos.
+En un cruce de ámbitos, `scopeKey` es el ámbito del **remitente** (donde vive la fila del mensaje) y `toScopeKey` el ámbito del destinatario; el nombre del destinatario solo es único dentro de su propio ámbito, así el emisor debe conocer el directorio de origen.
 
-El remitente conoce su ID por el resultado de `swarm`. El receptor lo conoce por el sobre visible. Una respuesta recibe su propio ID y apunta al original en `reply_to`. Validar en almacenamiento que el original fue dirigido a la sesión que responde, que `name` identifica al autor original y que ambos siguen en el ámbito autorizado. No correlacionar por parecido de texto ni por el último mensaje de un nombre.
+En una entrega asíncrona, usar mensaje sintético con `delivery:"steer"`, `resume:true`, texto legible y metadatos de sobre. Conservar el texto del agente como contenido, sin transformarlo en instrucciones de sistema. El texto visible es un único objeto JSON con `from`, `to`, `id`, `message` y — en respuestas — `reply_to` más una cita del original limitada por `replyQuoteMaxChars`, marcada como truncada; un cruce de ámbitos añade `from_dir`, el directorio canonizado del remitente. Los campos fijos nunca se derivan del contenido del peer, así el cuerpo no puede suplantarlos.
 
-Responder a una pregunta ya emitida puede ser válido aunque el emisor haya salido de la ventana normal de presencia: permitir una respuesta correlacionada a su identidad persistente si sigue en el mismo ámbito, no está archivado/eliminado/suspendido y Swarm sigue habilitado. Esto hace posibles respuestas tardías; no habilita nuevos mensajes arbitrarios a sesiones históricas. Los envíos nuevos sí requieren disponibilidad actual.
+El remitente conoce su ID por el resultado de `swarm`. El receptor lo conoce por el sobre visible. Una respuesta recibe su propio ID y apunta al original en `reply_to`. Validar en almacenamiento que el original fue dirigido a la sesión que responde (en un cruce, el ámbito destino del original es el del receptor, no el del remitente), que `name` identifica al autor original — resuelto en el ámbito del original, nunca en el del que responde — y que ambos siguen en sus ámbitos autorizados. No correlacionar por parecido de texto ni por el último mensaje de un nombre.
+
+Responder a una pregunta ya emitida puede ser válido aunque el emisor haya salido de la ventana normal de presencia: permitir una respuesta correlacionada a su identidad persistente si sigue en el mismo ámbito, no está archivado/eliminado/suspendido y Swarm sigue habilitado. Esto hace posibles respuestas tardías; no habilita nuevos mensajes arbitrarios a sesiones históricas: un envío nuevo exige las comprobaciones duras (identidad viva no en tombstone, sesión existente no eliminada ni archivada en el ámbito objetivo, sin suspensión), pero **no** la disponibilidad dentro de la ventana de presencia. La gracia de idle gobierna solo la visibilidad; un envío a un peer inactivo se entrega y lo despierta.
 
 ## 7. Espera opcional
 
@@ -156,6 +162,8 @@ despachar fuera de la transacción
 
 Comprobación y alta deben tener una única autoridad transaccional. Dos mutex de instancias diferentes no sirven. La búsqueda abarca todos los waits del ámbito, no solo la sesión actual. No mantener el lock durante red ni espera. Al resolver, fallar, cancelar, agotar plazo, deshabilitar o perder al propietario de una invocación, retirar su arista.
 
+En un cruce de ámbitos el grafo de cada ámbito no ve las aristas del otro: se detecta solo el ciclo directo, comprobando globalmente si el destino mantiene una espera viva hacia el emisor; en ese caso el envío se hace sin esperar (`reason:"cycle_detected"`). Los ciclos de tres o más ámbitos no se detectan; el límite de envíos por sesión acota el daño.
+
 Esto evita ciclos de espera entre llamadas Swarm. No garantiza que el receptor responda ni elimina bloqueos externos a Swarm. Mantener timeout y cancelación como salidas obligatorias.
 
 ## 9. Coordinación y persistencia
@@ -172,7 +180,8 @@ Datos mínimos y restricciones:
 | --- | --- |
 | `identities` | `(scopeKey,sessionID)`, nombre, tombstone; único `(scopeKey,name)`. |
 | `presence` | ámbito actual, ejecución, instante idle, suspensión, última reconciliación válida. |
-| `messages` | sobre inmutable, clave de invocación única, hash de entrada, estado, ID de entrega. |
+| `messages` | sobre inmutable (con ámbito destino en cruces), clave de invocación única, hash de entrada, estado, ID de entrega. |
+| `scopes` | registro `(scopeKey, referencia de servicio, proyecto, directorio de checkout)` para resolver `work_dir`; upserteado por cada coordinador al arrancar. |
 | `waits` | ID de invocación, mensaje esperado, emisor/receptor, reserva/espera/terminal, deadline y respuesta elegida. |
 | `delivery_outbox` | admisiones pendientes, reintentos, fallo y confirmación; no reemplaza el inbox de OpenCode. |
 | `instruction_state` | versión deseada y última confirmada por sesión/clave para reintentar publicaciones. |

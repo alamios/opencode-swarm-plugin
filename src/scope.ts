@@ -78,6 +78,15 @@ export function scopeKey(input: ScopeInput): string {
 }
 
 /**
+ * Checkout directory component of a scope key (third of three parts). Used to
+ * show where a cross-scope peer lives; malformed keys yield undefined.
+ */
+export function scopeCheckoutDir(scopeKey: string): string | undefined {
+  const parts = scopeKey.split("\u0000")
+  return parts.length === 3 && parts[2].length > 0 ? parts[2] : undefined
+}
+
+/**
  * Scope key for the plugin instance's own location, used as a quick filter
  * before full session-based resolution.
  */

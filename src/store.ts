@@ -25,6 +25,7 @@ function rowToMessage(row: Record<string, unknown>): MessageRow {
     toSessionID: row.to_session as string,
     fromName: row.from_name as string,
     toName: row.to_name as string,
+    toScopeKey: (row.to_scope_key as string | null) ?? null,
     body: row.body as string,
     replyTo: (row.reply_to as string | null) ?? null,
     createdAt: row.created_at as number,
@@ -303,12 +304,13 @@ export class Store {
       return { status: "conflict" }
     }
     this.db.run(
-      `INSERT INTO messages (id, scope_key, from_session, to_session, from_name, to_name, body, reply_to,
+      `INSERT INTO messages (id, scope_key, to_scope_key, from_session, to_session, from_name, to_name, body, reply_to,
                              created_at, state, invocation, input_hash, attempts, next_attempt_at, last_error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, NULL, NULL)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, NULL, NULL)`,
       [
         input.id,
         input.envelope.scopeKey,
+        input.envelope.toScopeKey ?? null,
         input.envelope.fromSessionID,
         input.envelope.toSessionID,
         input.envelope.fromName,
@@ -351,12 +353,13 @@ export class Store {
       }
       try {
         this.db.run(
-          `INSERT INTO messages (id, scope_key, from_session, to_session, from_name, to_name, body, reply_to,
+          `INSERT INTO messages (id, scope_key, to_scope_key, from_session, to_session, from_name, to_name, body, reply_to,
                                   created_at, state, invocation, input_hash, attempts, next_attempt_at, last_error)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, NULL, NULL)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, NULL, NULL)`,
           [
             input.id,
             input.envelope.scopeKey,
+            input.envelope.toScopeKey ?? null,
             input.envelope.fromSessionID,
             input.envelope.toSessionID,
             input.envelope.fromName,
@@ -446,6 +449,52 @@ export class Store {
       [scopeKey, retryWindowMs, now],
     )
     return rows.map(rowToMessage)
+  }
+
+  // ------------------------------------------------------------- scope registry
+
+  /** Register (or refresh) this coordinator's scope for cross-scope lookups. */
+  upsertScope(input: {
+    readonly scopeKey: string
+    readonly serviceRef: string
+    readonly projectID: string
+    readonly checkoutDir: string
+    readonly now: number
+  }): void {
+    this.db.run(
+      `INSERT INTO scopes (scope_key, service_ref, project_id, checkout_dir, registered_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(scope_key) DO UPDATE SET
+         service_ref = excluded.service_ref,
+         project_id = excluded.project_id,
+         checkout_dir = excluded.checkout_dir,
+         registered_at = excluded.registered_at`,
+      [input.scopeKey, input.serviceRef, input.projectID, input.checkoutDir, input.now],
+    )
+  }
+
+  /** Scope registered for (service registration, canonical checkout directory). */
+  scopeByCheckout(serviceRef: string, checkoutDir: string): string | undefined {
+    const row = this.db.get(
+      `SELECT scope_key FROM scopes WHERE service_ref = ? AND checkout_dir = ? ORDER BY registered_at DESC LIMIT 1`,
+      [serviceRef, checkoutDir],
+    )
+    return row ? String(row.scope_key) : undefined
+  }
+
+  /** True when a live lease exists for the scope (a coordinator is renewing it). */
+  scopeHasLiveOwner(scopeKey: string, now: number): boolean {
+    const row = this.db.get("SELECT state, expires_at FROM owners WHERE scope_key = ?", [scopeKey])
+    return !!row && row.state === "alive" && Number(row.expires_at) > now
+  }
+
+  /** Any live wait edge from `fromSession` to `toSession`, in any scope. */
+  liveWaitBetween(fromSession: string, toSession: string): boolean {
+    const row = this.db.get(
+      "SELECT id FROM waits WHERE from_session = ? AND to_session = ? AND state IN (?, ?) LIMIT 1",
+      [fromSession, toSession, ...ACTIVE_WAIT_STATES],
+    )
+    return !!row
   }
 
   // ----------------------------------------------------------------- waits

@@ -3,10 +3,12 @@
 // per plugin instance (per location); the shared SQLite store is the single
 // coordination authority, so several instances of the same scope converge.
 
+import { existsSync } from "node:fs"
+import { resolve } from "node:path"
 import type { Envelope, Identity, LoadedConfig, MessageRow, SwarmResult, WaitRow } from "./types"
 import { Store } from "./store"
 import { ServiceClient, ServiceError } from "./service"
-import { scopeKey, type ScopeInput } from "./scope"
+import { canonicalCheckoutDirectory, scopeKey, type ScopeInput } from "./scope"
 import { invocationKey, newMessageID, newWaitID, sha256, sha256Of } from "./ids"
 import { envelopeMetadata, renderOutbound, renderSwarmContext } from "./render"
 import { renderPrompt } from "./config"
@@ -24,6 +26,8 @@ export interface SwarmSendInput {
   message: string
   reply_to?: string
   wait_for_reply?: boolean
+  /** Directory of another swarm to address; relative to the caller's session directory. */
+  work_dir?: string
 }
 
 interface CachedSession {
@@ -574,7 +578,7 @@ export class Coordinator {
     const reply = input.reply_to === undefined ? undefined : input.reply_to
     if (reply !== undefined && (typeof reply !== "string" || !/^msg_[A-Za-z0-9]+$/.test(reply)))
       return { status: "error", code: "INVALID_REPLY", detail: "reply_to must be the exact opaque message ID received" }
-    const waiting = input.wait_for_reply === true
+    let waiting = input.wait_for_reply === true
 
     // Real caller identity from the invocation context, never an argument.
     const caller = call.sessionID
@@ -593,13 +597,41 @@ export class Coordinator {
       return { status: "error", code: "OUT_OF_SCOPE", detail: "this session was archived; its name is reserved" }
     const selfName = selfIdentity.name
 
-    // Target resolution.
-    const target = this.opts.store.identityByName(scope, input.name)
-    if (target && target.sessionID === caller) return { status: "error", code: "SELF_SEND", detail: `you are "${selfName}"` }
+    // Target scope. Local by default; a first send may address another
+    // registered scope via work_dir. reply_to always takes precedence: a
+    // reply goes back to the original sender's scope no matter what.
+    let original: MessageRow | undefined
+    let targetScope = scope
     if (reply !== undefined) {
-      const original = this.opts.store.message(reply)
-      if (!original || original.scopeKey !== scope)
-        return { status: "error", code: "INVALID_REPLY", detail: "reply ID is not a message of this workspace" }
+      original = this.opts.store.message(reply)
+      if (!original)
+        return { status: "error", code: "INVALID_REPLY", detail: "reply ID is not a known message" }
+      if (original.scopeKey !== scope && original.toScopeKey !== scope)
+        return { status: "error", code: "INVALID_REPLY", detail: "reply ID is not a message addressed to this workspace" }
+      targetScope = original.scopeKey
+    } else if (input.work_dir !== undefined) {
+      if (typeof input.work_dir !== "string" || input.work_dir.length === 0)
+        return { status: "error", code: "INVALID_INPUT", detail: "work_dir must be a non-empty directory path" }
+      const resolvedDir = resolve(callerInfo.directory, input.work_dir)
+      if (!existsSync(resolvedDir))
+        return { status: "error", code: "INVALID_INPUT", detail: `work_dir "${input.work_dir}" does not resolve to an existing directory` }
+      const checkoutDir = canonicalCheckoutDirectory(resolvedDir)
+      const registered = this.opts.store.scopeByCheckout(this.opts.serviceID, checkoutDir)
+      if (!registered)
+        return { status: "error", code: "PEER_UNAVAILABLE", detail: `no swarm scope registered for ${checkoutDir}`, peers: this.availableNames(caller) }
+      targetScope = registered
+      if (!this.opts.store.scopeHasLiveOwner(targetScope, Date.now()))
+        return { status: "error", code: "PEER_UNAVAILABLE", detail: `no active swarm coordinator for ${checkoutDir}`, peers: this.availableNames(caller) }
+    }
+    const crossScope = targetScope !== scope
+
+    // Target resolution. Names are unique per scope, so the name is always
+    // resolved in the target scope (for a cross-scope reply, the original
+    // sender's scope — never the caller's, where a local peer may share the
+    // name).
+    const target = this.opts.store.identityByName(targetScope, input.name)
+    if (target && target.sessionID === caller) return { status: "error", code: "SELF_SEND", detail: `you are "${selfName}"` }
+    if (reply !== undefined && original) {
       if (original.toSessionID !== caller)
         return { status: "error", code: "INVALID_REPLY", detail: "the original message was not addressed to you" }
       if (!target || target.tombstone || target.sessionID !== original.fromSessionID)
@@ -611,9 +643,9 @@ export class Coordinator {
       const targetInfo = await this.ensureCached(target.sessionID)
       if (!targetInfo || targetInfo.deleted || targetInfo.archived)
         return { status: "error", code: "PEER_UNAVAILABLE", detail: "the original author is no longer in this workspace" }
-      if (targetInfo.scopeKey !== scope)
+      if (targetInfo.scopeKey !== targetScope)
         return { status: "error", code: "PEER_UNAVAILABLE", detail: "the original author moved to another workspace" }
-      const presence = this.opts.store.presenceFor(scope, target.sessionID)
+      const presence = this.opts.store.presenceFor(targetScope, target.sessionID)
       if (presence?.suspended)
         return { status: "error", code: "PEER_UNAVAILABLE", detail: "the original author was stopped by the user and stays suspended" }
     } else {
@@ -622,11 +654,23 @@ export class Coordinator {
       const targetInfo = await this.ensureCached(target.sessionID)
       if (!targetInfo || targetInfo.deleted || targetInfo.archived)
         return { status: "error", code: "PEER_UNAVAILABLE", detail: `peer "${input.name}" is no longer in this workspace`, peers: this.availableNames(caller) }
-      if (targetInfo.scopeKey !== scope)
+      if (targetInfo.scopeKey !== targetScope)
         return { status: "error", code: "PEER_UNAVAILABLE", detail: `peer "${input.name}" moved to another workspace`, peers: this.availableNames(caller) }
-      const available = this.opts.store.availableSessions(scope, Date.now(), cfg.config.presence.idleGraceMs)
-      if (!available.has(target.sessionID))
-        return { status: "error", code: "PEER_UNAVAILABLE", detail: `peer "${input.name}" is not currently available`, peers: this.availableNames(caller) }
+      // No availability gate: idle peers are still reachable (a send wakes
+      // them through the steer resume); the idle grace only governs
+      // visibility. An explicit user stop is the single hard block.
+      const presence = this.opts.store.presenceFor(targetScope, target.sessionID)
+      if (presence?.suspended)
+        return { status: "error", code: "PEER_UNAVAILABLE", detail: `peer "${input.name}" was stopped by the user and stays suspended`, peers: this.availableNames(caller) }
+    }
+
+    // Cross-scope ping-pong: if the target already holds a live wait for a
+    // reply from us, waiting for its answer would close a cross-scope cycle;
+    // send without waiting (same policy as same-scope cycles).
+    let crossCycle = false
+    if (waiting && crossScope && target && this.opts.store.liveWaitBetween(target.sessionID, caller)) {
+      waiting = false
+      crossCycle = true
     }
 
     // Rate limits: separate sliding windows for sends and replies.
@@ -646,6 +690,7 @@ export class Coordinator {
       protocol: "swarm/v1",
       id: newMessageID(now),
       scopeKey: scope,
+      toScopeKey: crossScope ? targetScope : undefined,
       fromSessionID: caller,
       toSessionID: targetIdentity.sessionID,
       fromName: selfName,
@@ -655,7 +700,7 @@ export class Coordinator {
       createdAt: new Date(now).toISOString(),
     }
     const invocation = invocationKey(caller, call.messageID, call.callID)
-    const inputHash = sha256Of({ name: input.name, message: input.message, reply, wait_for_reply: waiting })
+    const inputHash = sha256Of({ name: input.name, message: input.message, reply, wait_for_reply: waiting, work_dir: input.work_dir ?? null })
     const waitRequest = waiting
       ? { id: newWaitID(), durationMs: cfg.config.wait.timeoutMs, ownerInstance: this.opts.instanceID }
       : null
@@ -679,7 +724,14 @@ export class Coordinator {
       return result
     }
 
-    return this.dispatch(envelope, { reply, waiting }, committed.waitID, selfName, targetIdentity.name, call)
+    const result = await this.dispatch(envelope, { reply, waiting }, committed.waitID, selfName, targetIdentity.name, call)
+    if (crossCycle && result.status === "accepted")
+      return {
+        ...result,
+        reason: "cycle_detected",
+        detail: `target "${targetIdentity.name}" is already waiting for a reply from you; waiting would close a cross-scope cycle, sent without waiting`,
+      }
+    return result
   }
 
   private availableNames(excludeSession: string): string[] {
@@ -775,10 +827,12 @@ export class Coordinator {
       const now = Date.now()
       this.opts.store.setAdmitted(envelope.id)
       if (waitID) this.opts.store.setWaiting(waitID, now + cfg.config.wait.timeoutMs, now)
-      // W11: a reply that also waits resolves the satisfied edge first.
+      // W11: a reply that also waits resolves the satisfied edge first. The
+      // wait lives in the ORIGINAL message's scope, which differs from ours
+      // on cross-scope replies.
       let claimed: WaitRow | undefined
       if (flags.reply) {
-        claimed = this.opts.store.claimReplyWait(scope, flags.reply, envelope.id, now)
+        claimed = this.opts.store.claimReplyWait(original?.scopeKey ?? scope, flags.reply, envelope.id, now)
         if (claimed) this.resolveWait(claimed)
       }
       if (flags.reply && !claimed) await this.deliverReply(envelope, original?.body ?? "")
@@ -952,10 +1006,12 @@ export class Coordinator {
 
   private async deliverReply(envelope: Envelope, originalBody: string): Promise<void> {
     const cfg = this.opts.current.config
-    const scope = envelope.scopeKey
-    const target = this.opts.store.identityFor(scope, envelope.toSessionID)
+    // On cross-scope messages the recipient's identity and presence live in
+    // the destination scope, not in the scope the message row is stored in.
+    const targetScope = envelope.toScopeKey ?? envelope.scopeKey
+    const target = this.opts.store.identityFor(targetScope, envelope.toSessionID)
     if (!target || target.tombstone) return
-    const presence = this.opts.store.presenceFor(scope, envelope.toSessionID)
+    const presence = this.opts.store.presenceFor(targetScope, envelope.toSessionID)
     if (presence?.suspended) {
       this.opts.log("info", `reply ${envelope.id} retained: recipient ${envelope.toSessionID} is suspended`)
       return
@@ -1075,6 +1131,7 @@ function envelopeFromRow(row: MessageRow): Envelope {
     protocol: "swarm/v1",
     id: row.id,
     scopeKey: row.scopeKey,
+    toScopeKey: row.toScopeKey ?? undefined,
     fromSessionID: row.fromSessionID,
     toSessionID: row.toSessionID,
     fromName: row.fromName,

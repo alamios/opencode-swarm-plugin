@@ -559,6 +559,92 @@ caché ESM que documenta §8.12 (allí la experimentación en caliente fallaba c
 `SyntaxError`; el mecanismo de recarga del host sí re-resuelve los módulos). Si en alguna
 versión la recarga no recogiera `src/`, el respaldo sigue siendo reiniciar el servidor.
 
+## 9.7 Cross-scope (`work_dir`) y entrega a peers inactivos (02-11)
+
+Dos características aprobadas por el usuario, cerradas en una misma tarea: **(1)** mensajería
+entre ámbitos con el argumento nuevo `work_dir` (el agente solo ve su propio directorio; el
+usuario instruye «comunícate con el agente X en el directorio /path»), y **(2)** envíos a
+peers inactivos: la inactividad pasa a ser **solo de visibilidad** (lista `<peers>`, panel,
+contexto), sin gate de entrega; un envío a un peer idle se entrega y lo despierta.
+
+**Decisiones de diseño:**
+
+- Los nombres son únicos **por scope**, no globalmente (confirmado en la BD real: el mismo
+  nombre vive en varios scopes). `(work_dir, name)` es la dirección completa entre ámbitos.
+- Registro de scopes: nueva tabla `scopes` (`scope_key PK, service_ref, project_id,
+  checkout_dir, registered_at` + índice de búsqueda), upserteada por cada coordinador al
+  arrancar. `work_dir` se resuelve contra el directorio de la sesión emisora, se canoniza a
+  la raíz del checkout y se busca por (referencia de servicio, directorio); un directorio
+  pertenece a un único proyecto, así la búsqueda es exacta. Sin fila o sin coordinador con
+  lease vivo en el ámbito destino → `PEER_UNAVAILABLE` con el directorio en el detalle.
+- El sobre gana `toScopeKey` (columna `to_scope_key` nullable en `messages`; NULL = local).
+  La fila vive **siempre en el scope del remitente**; los IDs de mensaje son globales.
+- `reply_to` tiene prioridad sobre `work_dir`: una respuesta vuelve siempre al ámbito del
+  autor original, y el nombre se resuelve en **ese** ámbito (nunca en el del que responde,
+  donde otro peer puede compartir el nombre). `claimReplyWait` y `deliverReply` operan sobre
+  el ámbito original/destino correcto; la resolución de esperas cruzadas llega por el poll
+  de 250 ms (el estado de fila es global por ID).
+- Ciclo cross-scope: solo se detecta el directo A↔B (el destino mantiene una espera viva
+  hacia el emisor, `liveWaitBetween` global) → el envío se hace sin esperar
+  (`reason:"cycle_detected"`). Los ciclos de 3+ ámbitos no se detectan; el límite de envíos
+  por sesión acota el daño.
+- El único bloqueo duro de presencia sigue siendo la **suspensión** del usuario; el resto de
+  comprobaciones duras: identidad viva (no en tombstone), sesión existente no
+  eliminada/archivada y no movida de ámbito.
+- El texto visible de un cruce añade `from_dir` (directorio canonizado del remitente) tras
+  `from`; los metadatos del mensaje sintético conservan el sobre completo con `toScopeKey`.
+
+**Código:** `src/db.ts` (tabla `scopes` + `ALTER` guardado por comprobación de columna),
+`src/types.ts` (`Envelope.toScopeKey?`, `MessageRow.toScopeKey`), `src/scope.ts`
+(`scopeCheckoutDir`), `src/store.ts` (`to_scope_key` en ambos INSERT de mensajes —
+placeholders recontados —; `upsertScope`, `scopeByCheckout`, `scopeHasLiveOwner`,
+`liveWaitBetween`), `src/coordinator.ts` (`SwarmSendInput.work_dir?`; `handleSend`
+reestructurado: resolución del scope objetivo, prioridad de `reply_to`, nombre en el scope
+objetivo, gate de disponibilidad eliminado, democión de ciclo cross-scope, `toScopeKey` en
+el sobre y `work_dir` en el hash de idempotencia; `dispatch`/`deliverReply`/
+`envelopeFromRow` corregidos para cruces), `server.ts` (`work_dir` en `INPUT_SCHEMA` +
+`upsertScope` en el setup), `src/render.ts` (`from_dir` + metadatos), `config/
+tool-description.md`, `config/swarm-prompt.md`, espejo
+`docs/spec/contracts/swarm.input.schema.json`, `README.md`, `SPEC.md` (v1.1).
+
+**Validación unitaria:** `npm test` **47/47** (6 nuevos: registro de scopes con
+upsert/lookup y registro más reciente ganando; `scopeHasLiveOwner` siguiendo el lease;
+`liveWaitBetween` entre scopes e ignorando estados terminales; `commitSend` persistiendo y
+releyendo `to_scope_key` (NULL en local); idempotencia de `migrate` con el `ALTER`
+guardado; `from_dir` presente en el texto visible cross-scope y ausente en local).
+`npm run typecheck` limpio.
+
+**Validación en vivo (02-11, sin reinicios):** el watch del host recargó el plugin al
+guardar (`loading plugin` 11:04:38) y el proceso en ejecución pasó a correr el código
+nuevo: la tabla `scopes` se pobló sola con 7 filas upserteadas por los coordinadores vivos
+(5 en 10:46:58 y 2 más — `/home/alamios/Escritorio` y `/home/alamios` — a las 11:09:02, al
+arrancar sus coordinadores), y los leases de `owners` siguieron renovándose.
+
+- **Envío a peer inactivo (local).** `salmón` y `camaleón` llevaban días fuera de la gracia
+  de 1 h (fuera de la visibilidad; el panel mostraba `Peers: —`). Ambos envíos →
+  `accepted` (`msg_01a19bf09218SN1zaoRFoBaiSm`, `msg_01a19bfbf7e58O6DAPsvdb4BCL`), fila en
+  estado `admitted`, y las dos sesiones **despertadas** (`presence.last_active_at` pasó de
+  hace días a el instante de la entrega). Antes del cambio estos envíos se rechazaban con
+  `PEER_UNAVAILABLE: … is not currently available`.
+- **Envío cross-scope.** A `abubilla` (scope `/home/alamios/Escritorio`, sesión
+  `ses_e640d2de…`) con `work_dir=/home/alamios/Escritorio` → `accepted`
+  (`msg_01a19bfbf7e7XLnTEfbkXNM9nB`), `admitted`. La fila en el scope del remitente
+  (`Configs/Opencode`) lleva `to_scope_key` = clave completa del scope de Escritorio. El
+  mensaje sintético en la sesión de `abubilla` (mismo ID público) contiene el texto visible
+  `{"from":"liron","from_dir":"/home/alamios/Proyectos/Configs/Opencode","to":"abubilla",
+  "id":"msg_01a19bfbf7e7XLnTEfbkXNM9nB","message":"…"}` y los metadatos con `scopeKey` y
+  `toScopeKey`. El modelo de `abubilla` lo leyó (su razonamiento cita «liron in a different
+  swarm/checkout») y, conforme al protocolo, no devolvió un acuse de recibo.
+- En el log del servidor no hay *unhandled rejection* nueva desde el fix del 26-10; las
+  rejection `expected 5 values` se detienen a las 14:59 del 26-10 (213 en total, todas
+  previas al fix).
+
+**No ejecutado en vivo:** la **respuesta** cross-scope (que un peer de otro ámbito
+conteste con `reply_to` un mensaje recibido en cruce, con o sin `wait_for_reply`), que
+quedó sin ejercer porque los mensajes de prueba eran notificaciones sin réplica; el enrutado de respuestas cruzadas (nombre resuelto en el scope
+del original, `claimReplyWait` en el scope original, `deliverReply` en el scope destino)
+está cubierto por los tests del dominio y por el mecanismo de entrega ya verificado arriba.
+
 ## 10. Resumen de estados
 
 - **Aprobados en vivo:** G01, G02, G03, G05, G07 (parcial), P01, P02, P12, M01, M02, M03, M05,

@@ -74,7 +74,10 @@ export interface PresenceRow {
 export interface Envelope {
   readonly protocol: "swarm/v1"
   readonly id: string
+  /** Scope the message row lives in (the sender's scope). */
   readonly scopeKey: string
+  /** Destination scope; undefined or equal to scopeKey for same-scope sends. */
+  readonly toScopeKey?: string
   readonly fromSessionID: string
   readonly toSessionID: string
   readonly fromName: string
@@ -92,6 +95,8 @@ export interface MessageRow {
   readonly toSessionID: string
   readonly fromName: string
   readonly toName: string
+  /** Destination scope of a cross-scope send; null for same-scope messages. */
+  readonly toScopeKey: string | null
   readonly body: string
   /** ID of the original message when this message is a reply. */
   readonly replyTo: string | null

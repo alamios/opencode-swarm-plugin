@@ -119,14 +119,23 @@ estrecha queda oculto. Evidencia del mecanismo en `docs/VALIDATION.md` §9.5.
 
 ## Semántica de la herramienta
 
-`swarm({ name, message, reply_to?, wait_for_reply? })`:
+`swarm({ name, message, reply_to?, wait_for_reply?, work_dir? })`:
 
 - `name`: nombre del peer (letras latinas minúsculas con acentos —á é í ó ú ü ñ— y dígitos;
-  patrón `^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$`).
+  patrón `^[a-zà-öø-ÿ][a-zà-öø-ÿ0-9]*(?:-[1-9][0-9]*)?$`). Los nombres son únicos **por
+  scope**: el mismo nombre puede existir en dos carteras.
 - `reply_to`: ID exacto del mensaje recibido al que se responde (se adjunta la cita real del
-  original, acotada).
+  original, acotada). La respuesta vuelve siempre al scope del autor original — también si el
+  mensaje recibido fue cross-scope.
 - `wait_for_reply` (default `false`): espera la primera respuesta correlacionada hasta
   `wait.timeoutMs`.
+- `work_dir` (default: el scope propio): directorio de **otro** swarm al que dirigir un envío
+  nuevo (solo pidiéndolo explícitamente). Se resuelve relativo al directorio de la sesión del
+  emisor, se canoniza a la raíz del checkout y se busca en el registro de scopes (tabla
+  `scopes`, upserteada por cada coordinador al arrancar): `(referencia del servicio, directorio
+  del checkout)` identifica un scope. Ignorado si hay `reply_to`. El scope objetivo debe tener
+  coordinador con lease vivo; el texto visible de un mensaje cross-scope añade `from_dir`
+  (el directorio del remitente) para desambiguar nombres.
 
 Estados de resultado: `accepted` (enviado y admitido), `replied` (con `response` de la
 respuesta: `id`, `from`, `reply_to`, `message`), `timeout` (el mensaje sigue enviado; una
@@ -153,6 +162,8 @@ Comportamientos clave:
 - **Esperas y ciclos:** una espera es una arista en un grafo por scope; si esperar cerraría un
   ciclo, el mensaje se envía igual pero sin esperar (`reason: cycle_detected`). La decisión es
   atómica (`BEGIN IMMEDIATE`), así que exactamente una de dos esperas concurrentes sobrevive.
+  Cross-scope se detecta el ciclo directo A↔B (el target ya espera respuesta del emisor); los
+  ciclos de 3+ scopes no se detectan y el límite por sesión acota el daño.
 - **Entrega:** sintético `steer` con `resume` (despierta al receptor); reintentos con backoff
   1 s→30 s dentro de la ventana; el mismo ID se reenvía (sin duplicados). El texto visible es
   un único objeto JSON: `from`, `to`, `id`, `message`, y — en respuestas — `reply_to` más una
@@ -162,7 +173,10 @@ Comportamientos clave:
   El estado idle se ancla al **último momento de actividad real** (no al instante en que se
   detecta): una sesión cuya actividad terminó hace más de `idleGraceMs` desaparece del
   conjunto disponible en el siguiente tick, y una sesión solo en pausa sigue visible 1 h
-  después de su último toque.
+  después de su último toque. La gracia gobierna solo la **visibilidad** (lista `<peers>`,
+  panel, contexto): un peer inactivo sigue siendo alcanzable — el envío se entrega igual y lo
+  despierta (steer con `resume`) — y el único bloqueo duro es la suspensión explícita del
+  usuario.
 
 ### Entrega de la entrada (`swarm`)
 

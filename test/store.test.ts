@@ -389,3 +389,72 @@ test("rate limit counters keep sends and replies separate (M12)", () => {
   assert.equal(store.countSince(scope, "S", now - 60_000, true), 1)
   assert.equal(store.countSince(scope, "S", now, false), 0)
 })
+
+// ---------------------------------------------------------------- scope registry
+
+test("scope registry: upsert and lookup by (service ref, checkout dir), latest wins", () => {
+  store.upsertScope({ scopeKey: "sA", serviceRef: "/svc", projectID: "p1", checkoutDir: "/repo", now: 1000 })
+  store.upsertScope({ scopeKey: "sB", serviceRef: "/svc", projectID: "p2", checkoutDir: "/repo", now: 2000 })
+  assert.equal(store.scopeByCheckout("/svc", "/repo"), "sB")
+  assert.equal(store.scopeByCheckout("/svc", "/other"), undefined)
+  assert.equal(store.scopeByCheckout("/other", "/repo"), undefined)
+  store.upsertScope({ scopeKey: "sA", serviceRef: "/svc", projectID: "p1", checkoutDir: "/repo", now: 3000 })
+  assert.equal(store.scopeByCheckout("/svc", "/repo"), "sA")
+})
+
+test("scopeHasLiveOwner follows the owner lease", () => {
+  assert.equal(store.scopeHasLiveOwner("s1", 1000), false)
+  assert.equal(store.acquireOwnership("s1", "i1", 1000, 5000), true)
+  assert.equal(store.scopeHasLiveOwner("s1", 5999), true)
+  assert.equal(store.scopeHasLiveOwner("s1", 6001), false)
+})
+
+test("liveWaitBetween sees live wait edges across scopes and ignores terminal states", () => {
+  store.insertWait({
+    id: "w1",
+    scopeKey: "sA",
+    messageID: "m1",
+    fromSessionID: "a",
+    toSessionID: "b",
+    state: "waiting",
+    durationMs: 1000,
+    deadlineAt: null,
+    now: 1,
+    ownerInstance: "i1",
+  })
+  assert.equal(store.liveWaitBetween("a", "b"), true)
+  assert.equal(store.liveWaitBetween("b", "a"), false)
+  assert.equal(store.liveWaitBetween("a", "c"), false)
+  store.resolveWaitTerminal("w1", "timed_out", 2)
+  assert.equal(store.liveWaitBetween("a", "b"), false)
+})
+
+test("commitSend persists the cross-scope destination and reads it back", () => {
+  const cross: Envelope = {
+    protocol: "swarm/v1",
+    id: newMessageID(),
+    scopeKey: "sA",
+    toScopeKey: "sB",
+    fromSessionID: "a",
+    toSessionID: "b",
+    fromName: "abeja",
+    toName: "zorro",
+    message: "cruce",
+    createdAt: new Date(1000).toISOString(),
+  }
+  assert.equal(store.commitSend({ id: cross.id, envelope: cross, invocation: "inv_x1", inputHash: "h", wait: null, now: 1000 }).status, "inserted")
+  const row = store.message(cross.id)
+  assert.equal(row?.scopeKey, "sA")
+  assert.equal(row?.toScopeKey, "sB")
+  const local: Envelope = { ...cross, id: newMessageID(), toScopeKey: undefined }
+  assert.equal(store.commitSend({ id: local.id, envelope: local, invocation: "inv_x2", inputHash: "h", wait: null, now: 1000 }).status, "inserted")
+  assert.equal(store.message(local.id)?.toScopeKey, null)
+})
+
+test("migrate is idempotent (guarded ALTER over an existing database)", async () => {
+  const db = await openSqlite(join(dir, "idem.db"))
+  migrate(db)
+  migrate(db)
+  assert.ok(db.all("PRAGMA table_info(messages)").some((row) => String(row.name) === "to_scope_key"))
+  db.close()
+})
