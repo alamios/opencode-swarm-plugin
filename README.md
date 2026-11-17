@@ -8,7 +8,10 @@ CONFIGURATION.md) y la evidencia de validación en `docs/VALIDATION.md`.
 
 ## Requisitos
 
-- OpenCode **v2.1.3** (probado con esa versión exacta; CLI compilado con Bun).
+- OpenCode **v2.3.0** (probado con esa versión; peer `@opencode/plugin >=2.2.3 <3`; CLI
+  compilado con Bun). Desde 2.2.3 el host requiere `@opentui/core` 0.8.x para el panel TUI y
+  resuelve los entrypoints del plugin por el mapa `exports` de `package.json` (de ahí la
+  subruta `"./tui": "./tui.ts"`; sin ella el panel TUI no se carga y el fallo es silencioso).
 - Servidor con registro de servicio (`opencode serve --service`), que genera
   `~/.local/state/opencode/service.json`. El plugin lee el registro para hablar con el propio
   servidor (misma instancia, `pid` verificado).
@@ -53,8 +56,10 @@ la de auto-descubrimiento del servidor y carga sin opciones; este plugin requier
    Opciones opcionales: `stateDirectory` (por defecto `~/.local/state/opencode-swarm`)
    para mover el estado SQLite, y `serviceRegistration` (por defecto
    `~/.local/state/opencode/service.json`) para apuntar a un registro distinto.
-3. `npm install` dentro del proyecto (para tests/typecheck, y para que la TUI resuelva
-   `@opentui/core` al cargar el panel `tui.ts`) y reiniciar o esperar la recarga del servidor.
+3. `npm install --legacy-peer-deps` dentro del proyecto (para tests/typecheck, y para que la
+   TUI resuelva `@opentui/core` al cargar el panel `tui.ts`; el flag es necesario porque el
+   pin de desarrollo `@opencode/plugin` queda por debajo del rango peer `>=2.2.3 <3`) y
+   reiniciar o esperar la recarga del servidor.
 
 ### Requisito crítico (v2.1.3): `codemode: false`
 
@@ -115,7 +120,10 @@ que el servidor (`~/.local/state/opencode-swarm`).
 
 La TUI recarga `tui.ts` en vivo al guardarlo y lo carga siempre en un arranque nuevo; no
 hay que reiniciar nada para ver el panel. Ojo: el sidebar es `"auto"`, con terminal
-estrecha queda oculto. Evidencia del mecanismo en `docs/VALIDATION.md` §9.5.
+estrecha queda oculto. Evidencia del mecanismo en `docs/VALIDATION.md` §9.5. En OpenCode
+2.3.0 el entrypoint se resuelve por la subruta `"./tui"` del mapa `exports`; si esa
+subruta no existe el host descarta la entrada en silencio (sin error ni aviso) y el panel
+no aparece (detalle y fix en `docs/VALIDATION.md` §9.8).
 
 ## Semántica de la herramienta
 

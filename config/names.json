@@ -1,29 +1,96 @@
 [
-  "abeja", "águila", "alce", "alpaca", "ardilla", "avispa",
-  "ballena", "bisonte", "búho", "caballo", "cabra", "camello",
-  "castor", "cebra", "ciervo", "cisne", "colibrí", "conejo",
-  "cuervo", "delfín", "erizo", "foca", "gacela", "garza",
-  "gato", "gecko", "gorrión", "grulla", "halcón", "hurón",
-  "iguana", "jaguar", "jirafa", "koala", "lechuza", "lince",
-  "lobo", "morsa", "nutria", "orca", "oso", "panda", "ornitorrinco",
-  "puma", "pulpo", "rana", "tejón", "tigre", "zorro",
-  "anta", "armadillo", "carnero", "caribu", "capibara", "canguro",
-  "chinchilla", "coyote", "elefante", "guepardo", "hiena", "hipopótamo",
-  "jerbo", "lirón", "mangosta", "marmota", "mono", "musaraña",
-  "perezoso", "rata", "ratón", "reno", "rinoceronte", "visón",
-  "abubilla", "atila", "avestruz", "carpintero", "carbonero", "cotorra",
-  "cormorán", "cúculo", "curruca", "flamenco", "fragata", "gavilán",
-  "garceta", "gaviota", "loro", "martín", "mirlo", "mochuelo",
-  "paloma", "periquito", "petrel", "pingüino", "ratonero", "ruiseñor",
-  "tucán", "urruca", "vencejo", "verderola", "zorzal",
-  "abadejo", "anchoa", "atún", "barbo", "bacalao", "bagre",
-  "carpa", "corvina", "dorada", "lenguado", "lubina", "manta",
-  "mero", "merluza", "mojarra", "piraná", "rombo", "sardina",
-  "salmón", "tiburón", "trucha",
-  "caimán", "camaleón", "cocodrilo", "culebra", "lagarto", "manatí",
-  "pitón", "serpiente", "tortuga", "varano", "víbora",
-  "ajolote", "salamandra", "sapo", "tritón",
-  "araña", "calamar", "caballito", "ciempiés", "escarabajo", "grillo",
-  "libelula", "mariquita", "mariposa", "mantis", "medusa", "mosca",
-  "polilla", "saltamontes", "tarántula", "termita"
+  "abeja", "abejorro", "abubilla", "águila", "ajolote",
+  "alacrán", "albatros", "alce", "almeja", "alpaca",
+  "anaconda", "anchoa", "anguila", "antílope", "araña",
+  "ardilla", "armadillo", "armiño", "atún", "avestruz",
+  "avispa",
+
+  "abadejo", "bacalao", "bagre", "ballena", "barbo",
+  "barracuda", "becada", "berberecho", "besugo", "bisonte",
+  "boa", "bogavante", "bonito", "búfalo", "búho",
+  "buitre", "burro",
+
+  "caballa", "caballo", "cabra", "cacatúa",
+  "cachalote", "caimán", "calamar", "camaleón", "camello",
+  "camarón", "canario", "cangrejo", "canguro", "capibara",
+  "caracol", "carbonero", "caribú", "carnero", "carpa",
+  "castor", "casuario", "cebra", "centollo", "cerdo",
+  "cernícalo", "chacal", "chimpancé", "chinchilla", "chinche",
+  "choco", "cigarra", "cigüeña", "ciempiés", "ciervo",
+  "cisne", "coatí", "cobra", "cocodrilo", "codorniz",
+  "colibrí", "comadreja", "cóndor", "conejo", "coral",
+  "cormorán", "corneja", "corvina", "cotorra", "coyote",
+  "cucaracha", "cuco", "cuervo", "culebra", "curruca",
+
+  "delfín", "dingo", "dorada", "dragón", "dromedario",
+  "dugongo",
+
+  "elefante", "emú", "erizo", "escarabajo",
+  "escorpión", "esponja", "estrella", "esturión",
+
+  "faisán", "flamenco", "foca", "fragata", "frailecillo",
+
+  "gacela", "gallina", "gallo", "gamba", "ganso",
+  "garceta", "garrapata", "garza", "gato", "gavilán",
+  "gaviota", "gecko", "gerifalte", "glotón", "golondrina",
+  "gorila", "gorrión", "grillo", "grulla", "guanaco",
+  "guacamayo", "guepardo",
+
+  "halcón", "hámster", "hiena", "hipopótamo",
+  "hormiga", "hurón",
+
+  "ibis", "iguana", "impala",
+
+  "jabalí", "jaguar", "jerbo", "jilguero", "jirafa",
+
+  "kiwi", "koala", "kril",
+
+  "lagartija", "lagarto", "langosta", "langostino", "lechuza",
+  "lémur", "lenguado", "león", "leopardo",
+  "libélula", "liebre", "lince", "lirón", "llama",
+  "lobo", "lombriz", "loro", "lubina", "luciérnaga",
+
+  "macaco", "manatí", "mandril", "mangosta", "manta",
+  "mantis", "mapache", "marabú", "mariquita", "mariposa",
+  "marmota", "marsopa", "medusa", "mejillón",
+  "merluza", "mero", "milano", "milpiés", "mirlo",
+  "mochuelo", "mojarra", "mono", "morsa", "mosca",
+  "mosquito", "muflón", "murciélago", "musaraña",
+
+  "narval", "navaja", "nutria", "ñandú", "ñu",
+
+  "ocelote", "okapi", "orangután", "orca", "ornitorrinco",
+  "oropéndola", "oruga", "oso", "hormiguero", "panda",
+  "ostra", "oveja",
+
+  "paloma", "pangolín", "pato", "pavo", "pelícano", "perca", 
+  "perdiz", "perezoso", "periquito", "perro", "petirrojo", 
+  "petrel", "pingüino", "pinzón", "piojo", "piraña",
+  "pitón", "polilla", "puercoespín", "pulga", "pulpo",
+  "puma",
+
+  "quebrantahuesos", "quetzal", "quokka",
+
+  "rana", "rape", "rata", "ratón", "ratonero",
+  "raya", "reno", "reyezuelo", "rinoceronte", "rodaballo",
+  "ruiseñor",
+
+  "salamandra", "salmón", "salmonete", "salpa", "saltamontes",
+  "sanguijuela", "sapo", "sardina", "sepia", "serpiente",
+  "suricata",
+
+  "tábano", "tapir", "tarántula", "tejón", "termita",
+  "tiburón", "tigre", "topo", "tortuga", "tórtola",
+  "tritón", "trucha", "tucán",
+
+  "urogallo", "urraca",
+
+  "vaca", "varano", "vencejo", "verderón", "víbora",
+  "vicuña", "vieira", "visón",
+
+  "walabí", "wombat",
+
+  "yak",
+
+  "zarigüeya", "zorro", "zorzal"
 ]

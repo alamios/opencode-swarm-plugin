@@ -11,10 +11,11 @@
   },
   "exports": {
     ".": "./server.ts",
-    "./server": "./server.ts"
+    "./server": "./server.ts",
+    "./tui": "./tui.ts"
   },
   "peerDependencies": {
-    "@opencode/plugin": ">=2.1.3 <3"
+    "@opencode/plugin": ">=2.2.3 <3"
   },
   "devDependencies": {
     "@opencode/plugin": "2.1.3",
@@ -23,6 +24,6 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "@opentui/core": "0.6.6"
+    "@opentui/core": "0.8.4"
   }
 }

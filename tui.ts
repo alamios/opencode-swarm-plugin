@@ -4,8 +4,9 @@
 // Nodes are created imperatively, without the host's JSX runtime: OpenTUI
 // brands renderables with Symbol.for("@opentui/core/Renderable"), so nodes
 // built from this plugin's own @opentui/core (pinned to the host version) are
-// accepted by the host's reconciler. The host RenderContext is reached via
-// context.renderer.root.ctx.
+// accepted by the host's reconciler. The host RenderContext is the
+// context.renderer itself (OpenTUI 0.8) or context.renderer.root.ctx on older
+// hosts.
 //
 // The TUI loads this plugin from the server inventory and does not carry the
 // config entry options, so the panel resolves its own state/config paths:
@@ -151,8 +152,10 @@ async function resolvePaths(
 export default Plugin.define({
   id: "swarm",
   async setup(context: Plugin.Context) {
-    const renderer = context.renderer as unknown as { root?: { ctx?: RenderContext } }
-    const renderContext = renderer.root?.ctx
+    // OpenTUI 0.8: the CliRenderer itself is a RenderContext; older hosts
+    // expose it through renderer.root.ctx.
+    const renderer = context.renderer as unknown as RenderContext & { root?: { ctx?: RenderContext } }
+    const renderContext = renderer.root?.ctx ?? renderer
     if (!renderContext) return
 
     const { configPath, stateDirectory } = await resolvePaths(context)

@@ -483,7 +483,7 @@ lista).
 (`águila`, `búho`, `delfín`, `gorrión`, `halcón`, `hurón`, `colibrí`, `tejón`, `ratón`,
 `ruiseñor`, `tucán`, `atún`, `salmón`, `tiburón`, `caimán`, `camaleón`, `víbora`, `tritón`,
 `araña`, `pitón`, `manatí`, `pingüino`, `visón`, `cormorán`, `cúculo`, `gavilán`, `martín`,
-`hipopótamo`, `musaraña`, `piraná`, `ciempiés`, `tarántula`), `fregata` → `fragata` (RAE)
+`hipopótamo`, `musaraña`, `ciempiés`, `tarántula`), `fregata` → `fragata` (RAE)
 y `liron` (no es un animal estándar en español) → `muro`. Sin duplicados; verificado con el
 patrón nuevo.
 
@@ -644,6 +644,33 @@ conteste con `reply_to` un mensaje recibido en cruce, con o sin `wait_for_reply`
 quedó sin ejercer porque los mensajes de prueba eran notificaciones sin réplica; el enrutado de respuestas cruzadas (nombre resuelto en el scope
 del original, `claimReplyWait` en el scope original, `deliverReply` en el scope destino)
 está cubierto por los tests del dominio y por el mecanismo de entrega ya verificado arriba.
+
+## 9.8 Compatibilidad con OpenCode 2.3.0 / OpenTUI 0.8 (17-11)
+
+La actualización del host a **v2.3.0** rompió el panel TUI **en silencio**: OpenCode 2.3.0
+resuelve los entrypoints del plugin por el mapa `exports` de `package.json`, y el mapa solo
+tenía `.` y `./server` — sin la subruta `./tui`, la TUI no cargaba `tui.ts` y no emitía
+error ni aviso. El lado servidor del plugin (server.ts) seguía funcionando: en el log del
+servidor del 17-11 hay 27 cargas del plugin, todas `entrypoint=…/server.ts`, y ninguna del
+entrypoint TUI.
+
+**Correcciones (3):**
+
+- `package.json`: `exports` con `"./tui": "./tui.ts"` (el fix esencial del panel);
+  `@opentui/core` **0.6.6 → 0.8.4** (el host desde 2.2.3 trae OpenTUI 0.8; 0.6.6 es
+  incompatible) y peer `@opencode/plugin` **>=2.2.3 <3**. Instalación con
+  `npm install --legacy-peer-deps` — el pin de desarrollo `@opencode/plugin` 2.1.3 (solo
+  para typecheck) queda por debajo del nuevo rango peer y un `npm install` plano falla con
+  ERESOLVE.
+- `tui.ts`: `renderContext = renderer.root?.ctx ?? renderer` — en OpenTUI 0.8 el
+  `CliRenderer` del host **es** el `RenderContext` (en versiones anteriores se exponía vía
+  `root.ctx`). El guard `if (!renderContext) return` se conserva.
+
+**Validación:** `npm run typecheck` limpio y `npm test` **47/47** con los tipos de
+`@opentui/core` 0.8.4 (el export `RenderContext` es estable entre 0.6 y 0.8). La
+reaparición del panel en la TUI depende de que el proceso TUI del usuario resuelva la
+nueva subruta `./tui` (recarga en vivo de `tui.ts` y arranque nuevo; el `package.json`
+puede requerir reinicio de la TUI, no del servidor).
 
 ## 10. Resumen de estados
 
